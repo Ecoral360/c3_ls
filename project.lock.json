@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "packages": [
+    {
+      "name": "c3_analyzer",
+      "repo": "Zathyy/c3-analyzer",
+      "origin": "github",
+      "path": "lib/c3-analyzer.c3l",
+      "zip": false,
+      "ref": "",
+      "commit": "174e73165d89fa758da3acce8e5e3397c9f867ec"
+    },
+    {
+      "name": "dessert",
+      "repo": "Ecoral360/dessert",
+      "origin": "github",
+      "path": "lib/dessert.c3l",
+      "zip": false,
+      "ref": "",
+      "commit": "8a3f69794ef63d56c044c3f8734442fbd45c7f63"
+    }
+  ]
+}

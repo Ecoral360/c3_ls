@@ -1,19 +1,37 @@
 {
+  "authors": [
+    "m0tholith",
+    "Zathy",
+    "ecoral360"
+  ],
+  "cpu": "generic",
+  "dependencies": [
+    "dessert",
+    "c3_analyzer"
+  ],
+  "dependency-search-paths": [
+    "lib"
+  ],
   "langrev": "1",
-  "warnings": ["no-unused"],
-  "dependency-search-paths": ["lib"],
-  "dependencies": ["dessert", "c3_analyzer", "seali"],
-  "authors": ["m0tholith", "Zathy", "ecoral360"],
-  "version": "0.1.0",
-  "sources": ["src/**"],
-  "test-sources": ["test/**"],
+  "opt": "O0",
   "output": "build",
+  "sources": [
+    "src/**"
+  ],
   "targets": {
     "c3_ls": {
-      "type": "executable",
-      "features": ["ANALYZER_LIB", "SEMA"]
+      "features": [
+        "ANALYZER_LIB",
+        "SEMA"
+      ],
+      "type": "executable"
     }
   },
-  "cpu": "generic",
-  "opt": "O0"
+  "test-sources": [
+    "test/**"
+  ],
+  "version": "0.1.0",
+  "warnings": [
+    "no-unused"
+  ]
 }

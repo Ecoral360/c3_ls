@@ -8,8 +8,9 @@ import derive;
 
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification
 
-typedef LspUri = inline String;
-typedef DocumentUri = inline String;
+alias LspUri = String;
+alias DocumentUri = String;
+
 
 $expand(derive(WorkspaceFolder::name, dessert));
 struct WorkspaceFolder 

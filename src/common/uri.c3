@@ -160,7 +160,7 @@ fn String Uri.to_raw_string(&self, Allocator output_allocator)
     $endif
 }
 
-fn void uri_windows_test() @test @if(env::WIN32)
+fn void uri_windows_test() @test @feat(WIN32)
 {
     String value = `file:///C%3A/project/readme.md`;
     Uri expected = { 
@@ -175,7 +175,7 @@ fn void uri_windows_test() @test @if(env::WIN32)
     assert(uri == expected);
 }
 
-fn void uri_linux_test() @test @if(env::LINUX)
+fn void uri_linux_test() @test @feat(LINUX)
 {
     String value = `file:///home/user/code/main.c3`;
     
@@ -191,7 +191,7 @@ fn void uri_linux_test() @test @if(env::LINUX)
     assert(uri == expected);
 }
 
-fn void uri_serialization_windows_test() @test @if(env::WIN32)
+fn void uri_serialization_windows_test() @test @feat(WIN32)
 {
     String native_path = `C:\project\readme.md`;
     Uri uri = from_file_path(mem, native_path);
@@ -203,7 +203,7 @@ fn void uri_serialization_windows_test() @test @if(env::WIN32)
     assert(raw_uri == "file:///C:/project/readme.md");
 }
 
-fn void uri_serialization_linux_test() @test @if(env::LINUX)
+fn void uri_serialization_linux_test() @test @feat(LINUX)
 {
     String native_path = "/home/user/code/main.c3";
     Uri uri = from_file_path(mem, native_path);

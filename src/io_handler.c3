@@ -10,7 +10,7 @@ import libc;
 import std::os::win32;
 
 // will be in std lib soon
-extern fn int _setmode(int fd, int mode) @if(env::WIN32);
+extern fn int _setmode(int fd, int mode) @feat(WIN32);
 
 <*
  Set up stdin for continuous reading
@@ -23,14 +23,23 @@ fn void init()
 	$endif
 }
 
+fn void quit() {}
+
+fn LspMessage? read_string(Allocator allocator, String message) 
+{
+	ByteReader stream;
+	stream.init(message);
+	return read(allocator, &stream);
+}
+
 <*
   Reads a protocol-framed LSP message from stdin
   @return "LSP message allocated with `allocator`"
   @return? translator::INVALID_MESSAGE
 *>
-fn LspMessage? read(Allocator allocator)
+fn LspMessage? read(Allocator allocator, InStream stream = io::stdin())
 {
-    InStream stream = io::stdin();
+    // InStream stream = io::stdin();
     DString line = dstring::new(tmem);
     defer line.free();
 
