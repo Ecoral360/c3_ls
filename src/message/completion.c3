@@ -10,11 +10,10 @@ import std::collections::maybe;
 import std::collections::list;
 
 import dessert;
-import derive;
 
 import uri;
 
-$expand(derive(LspCompletionResponse::name, dessert));
+$expand(dessert::@derive(LspCompletionResponse));
 struct LspCompletionResponse
 {
 	String jsonrpc;
@@ -34,7 +33,7 @@ struct LspCompletionResponse
 	}
 }
 
-$expand(derive(LspCompletionResolveResponse::name, dessert));
+$expand(dessert::@derive(LspCompletionResolveResponse));
 struct LspCompletionResolveResponse
 {
 	String jsonrpc;

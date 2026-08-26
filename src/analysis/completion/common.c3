@@ -1,14 +1,14 @@
 module lsp::analysis::completion;
 
-import analyzer::workspace;
 import analyzer::core;
 import analyzer::cursor;
 import analyzer::sema;
 
+import lsp::core;
+
 import std::collections::list;
 import std::collections::map;
 
-import lsp::core;
 import uri;
 
 fn void provide_keywords(Context* ctx, List{CompletionItem}* items)
@@ -101,7 +101,7 @@ fn void add_symbol_completion(Context* ctx, List{CompletionItem}* items, String 
 		case VAR_DECL:
 			{
 				VarDecl* decl = node.as(VarDecl);
-				if (decl.flags.is_const)
+				if (decl.var_flags.is_const)
 				{
 					item_kind = CONSTANT;
 					type_desc = "constant";
@@ -132,6 +132,6 @@ fn void add_symbol_completion(Context* ctx, List{CompletionItem}* items, String 
 		.insert_text_format = format,
 		.filter_text = filter_text,
 		.sort_text = string::tformat("0005_%s", symbol_name),
-		.data = string::tformat("%d;%s", ctx.section.id, symbol_name)
+		.data = string::tformat("%d;%s", (ulong)node.id, symbol_name)
 	});
 }

@@ -1,14 +1,15 @@
 module lsp::analysis::completion;
 
-import analyzer::workspace;
 import analyzer::core;
 import analyzer::cursor;
 import analyzer::sema;
+import analyzer::sema::scope;
+
+import lsp::core;
 
 import std::collections::list;
 import std::collections::map;
 
-import lsp::core;
 import uri;
 
 fn void provide_global(Context* ctx, List{CompletionItem}* items)
@@ -16,45 +17,42 @@ fn void provide_global(Context* ctx, List{CompletionItem}* items)
 	if (ctx.access != NONE) return;
 	
 	bool types_only = false;
-	Module* current_mod = ctx.section.parent_module;
+	Module* current_mod = ctx.mod;
 	
 	if (ctx.scope == GLOBAL)
 	{
 		types_only = true;
 	}
 
-	ctx.ws.modules.@each(; mod_name, mod)
+	ctx.session.by_name.@each(; String symbol_name, List{SymbolRef} refs)
 	{
-		mod.symbols.@each(; symbol_name, symbol_list)
+		do SCOPE:
 		{
-			do SCOPE:
+			if (refs.is_empty()) break SCOPE;
+
+			if (ctx.prefix.len > 0 && !symbol_name.contains(ctx.prefix))
 			{
-				if (symbol_list.is_empty()) break SCOPE;
-				
-				if (ctx.prefix.len > 0 && !symbol_name.contains(ctx.prefix)) 
+				break SCOPE;
+			}
+
+			foreach (SymbolRef ref : refs)
+			{
+				if (!should_include_node(ref.node, ref.module_name, current_mod, types_only))
 				{
-					break SCOPE;
+					continue;
 				}
-				
-				foreach (entry : symbol_list)
-				{
-					if (!should_include_node(entry.node, mod, current_mod, types_only))
-					{
-						continue;
-					}
-					
-					add_symbol_completion(ctx, items, symbol_name, entry.node, mod_name, ctx.prefix);
-				}
-			};
+
+				add_symbol_completion(ctx, items, symbol_name, ref.node, ref.module_name, ctx.prefix);
+			}
 		};
 	};
 }
 
-fn bool should_include_node(Node* node, Module* mod, Module* current_mod, bool types_only) @local
+fn bool should_include_node(Node* node, String module_name, Module* current_mod, bool types_only) @local
 {
 	if (!node || !node.is_valid()) return false;
 	
-	if (mod.id != current_mod.id)
+	if (!current_mod || module_name != current_mod.name)
 	{
 		if (node.visibility != PUBLIC) return false;
 

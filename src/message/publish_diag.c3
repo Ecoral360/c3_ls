@@ -3,16 +3,16 @@ module lsp::msg_handler::publish_diag;
 import std::collections::list;
 import std::collections::set;
 
-import analyzer::workspace;
 import analyzer::core;
+import analyzer::core::diagnostics;
+import lsp::core;
 import lsp::io_handler;
 import lsp::translator;
 import dessert;
-import derive;
 
 import uri;
 
-$expand(derive(MessageSeverity::name, dessert));
+$expand(dessert::@derive(MessageSeverity));
 constdef MessageSeverity : inline int
 {
 	ERROR = 1,
@@ -21,7 +21,7 @@ constdef MessageSeverity : inline int
 	HINT = 4,
 }
 
-$expand(derive(LspDiagnostic::name, dessert));
+$expand(dessert::@derive(LspDiagnostic));
 struct LspDiagnostic 
 {
 	LspRange range;
@@ -30,73 +30,48 @@ struct LspDiagnostic
 	String source;
 }
 
-fn MessageSeverity to_severity(LogPriority prio)
+fn MessageSeverity to_severity(DiagnosticLevel level)
 {
-	switch (prio)
+	switch (level)
 	{
-		case LogPriority.INFO:
+		case DiagnosticLevel.NOTE:
+			return MessageSeverity.HINT;
+		case DiagnosticLevel.INFO:
 			return MessageSeverity.INFO;
-		case LogPriority.WARN:
+		case DiagnosticLevel.WARN:
 			return MessageSeverity.WARNING;
-		case LogPriority.ERROR:
-		case LogPriority.CRITICAL:
+		case DiagnosticLevel.ERROR:
 			return MessageSeverity.ERROR;
-		default: break;
 	}
-
-	return MessageSeverity.HINT;
 }
 
-fn void publish(Allocator allocator, FileInput[] processed_files, ProcessResult* result)
+<*
+ Send diagnostics for every path touched by the last update batch.
+
+ Paths with nothing collected still get an empty array, which is how a
+ client is told the file is clean now.
+*>
+fn void publish(Allocator allocator, LspSession* session, String[] touched_paths)
 {
-	HashSet{String} files_with_errors;
-	files_with_errors.tinit();
-	
-	List{LspDiagnostic} diags;
-	diags.tinit();
-
-	foreach (section : result.errored_sections)
+	foreach (String file_path : touched_paths)
 	{
-		Uri file_uri = uri::from_file_path(tmem, section.source_file.file_path);
-		DocumentUri formatted_uri = (DocumentUri)file_uri.to_raw_string(tmem);
+		List{SessionDiagnostic} collected = session.diagnostics_for(file_path);
 
-		files_with_errors.add(section.source_file.file_path);
+		List{LspDiagnostic} diags;
+		diags.tinit();
 
-		foreach (diag : section.diagnostics)
+		foreach (SessionDiagnostic diag : collected)
 		{
 			diags.push({
 				.range = {
-					.start = { .line = (uint)diag.start_loc.line, .character = (uint)diag.start_loc.column },
-					.end = { .line = (uint)diag.end_loc.line, .character = (uint)diag.end_loc.column },
+					.start = { .line = (uint)diag.range.start.line, .character = (uint)diag.range.start.column },
+					.end = { .line = (uint)diag.range.end.line, .character = (uint)diag.range.end.column },
 				},
 				.severity = to_severity(diag.level),
 				.message = diag.message,
 				.source = "c3-analyzer"
 			});
 		}
-
-		LspMessage res = {
-			.rpc = "2.0",
-			.method = PUB_DIAG,
-			.params.pub_diag = {
-				.uri = formatted_uri,
-				.diagnostics = diags.to_tarray(),
-			}
-		};
-
-		String response_json = translator::encode(res, allocator);
-		log::debug("Sending diagnostics for errored section: %s", response_json);
-		io_handler::write(response_json);
-
-		diags.clear();
-	}
-
-	foreach (input_file : processed_files)
-	{
-		String file_path = input_file.path; 
-		if (file_path.len == 0) file_path = input_file.uri;
-
-		if (files_with_errors.contains(file_path)) continue;
 
 		Uri file_uri = uri::from_file_path(tmem, file_path);
 		DocumentUri formatted_uri = (DocumentUri)file_uri.to_raw_string(tmem);
@@ -111,7 +86,7 @@ fn void publish(Allocator allocator, FileInput[] processed_files, ProcessResult*
 		};
 
 		String response_json = translator::encode(res, allocator);
-		log::debug("Clearing diagnostics for clean file: %s", response_json);
+		log::debug("Sending diagnostics for %s: %s", file_path, response_json);
 		io_handler::write(response_json);
 	}
 }

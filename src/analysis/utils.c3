@@ -2,7 +2,9 @@ module lsp::analysis;
 
 import analyzer::core;
 import analyzer::cursor;
-import analyzer::workspace;
+import analyzer::lexer;
+
+import lsp::core;
 
 import std::collections::list;
 
@@ -52,7 +54,7 @@ fn CompletionItemKind completion_kind_from_node(Node* node)
 		case VAR_DECL:
 		{
 			VarDecl* var_decl = node.as(VarDecl);
-			if (var_decl.flags.is_const)
+			if (var_decl.var_flags.is_const)
 			{
 				return CONSTANT;
 			}
@@ -71,11 +73,11 @@ fn CompletionItemKind completion_kind_from_node(Node* node)
 
 <*
 *>
-fn ScopeKind find_scope(Context* ctx, int cursor_pos)
+fn ScopeKind find_scope(Context* ctx, Location cursor_loc)
 {
 	if (!ctx.top_level_node) return GLOBAL;
 	Node* node = ctx.top_level_node;
-	if (cursor_pos < node.offset.start || cursor_pos > node.offset.end) return GLOBAL;
+	if (!node.range.contains(cursor_loc)) return GLOBAL;
 
 	switch (node.kind)
 	{
@@ -83,14 +85,14 @@ fn ScopeKind find_scope(Context* ctx, int cursor_pos)
 			return IMPORT;
 		case FN_DECL:
 			FnDecl* func = node.as(FnDecl);
-			if (func.body && cursor_pos >= func.body.offset.start)
+			if (func.body && !is_before(cursor_loc, func.body.range.start))
 			{
 				return EXECUTION;
 			}
 			break;
 		case MACRO_DECL:
 			MacroDecl* mac = node.as(MacroDecl);
-			if (mac.body  && cursor_pos >= mac.body.offset.start) 
+			if (mac.body && !is_before(cursor_loc, mac.body.range.start))
 			{
 				return EXECUTION;
 			}
@@ -108,7 +110,7 @@ fn ScopeKind find_scope(Context* ctx, int cursor_pos)
 			
 			foreach (t : ctx.tokens)
 			{
-				if (node.offset.start + t.pos >= cursor_pos) break;
+				if (!is_before(t.range.start, cursor_loc)) break;
 
 				if (t.kind == LBRACE)
 				{ 
@@ -136,7 +138,7 @@ fn ScopeKind find_scope(Context* ctx, int cursor_pos)
 
 			foreach (t : ctx.tokens)
 			{
-				if (node.offset.start + t.pos >= cursor_pos) break;
+				if (!is_before(t.range.start, cursor_loc)) break;
 
 				if (t.kind == LBRACE)
 				{
@@ -175,11 +177,11 @@ fn ScopeKind find_scope(Context* ctx, int cursor_pos)
 
 <*
 *>
-fn ScopeKind find_node(Context* ctx, int cursor_pos)
+fn ScopeKind find_node(Context* ctx, Location cursor_loc)
 {
 	if (!ctx.top_level_node) return GLOBAL;
 	Node* node = ctx.top_level_node;
-	if (cursor_pos >= node.offset.start && cursor_pos <= node.offset.end)
+	if (node.range.contains(cursor_loc))
 	{
 		switch (node.kind)
 		{
@@ -214,7 +216,7 @@ fn List{String} get_expression_chain(Context* ctx)
 	sz cursor_idx = -1;
 	for (sz i = 0; i < ctx.tokens.len(); i++) 
 	{
-		if (ctx.tokens[i].pos > ctx.offset) 
+		if (!is_before(ctx.tokens[i].range.start, ctx.location)) 
 		{
 			cursor_idx = i - 1;
 			log::info("Found token: idx = %d", cursor_idx);
@@ -231,7 +233,7 @@ fn List{String} get_expression_chain(Context* ctx)
 			if (t.kind == DOT || t.kind == SCOPE) continue;
 			if (t.kind == IDENT || t.kind == TYPE_IDENT)
 			{
-				chain.insert_at(0, ctx.section.source_file.source[t.pos:t.len]);
+				chain.insert_at(0, t.value);
 				expect_ident = false;
 				log::info("appened!");
 			}
@@ -256,7 +258,7 @@ fn List{String} get_expression_chain(Context* ctx)
 	return chain;
 }
 
-fn Module* find_module_by_identifier(Workspace* ws, String current_module_name, String identifier)
+fn Module* find_module_by_identifier(LspSession* session, String current_module_name, String identifier)
 {
 	String scoped_path = "";
 	if (current_module_name.len > 0) 
@@ -265,7 +267,7 @@ fn Module* find_module_by_identifier(Workspace* ws, String current_module_name, 
 	}
 	String suffix_path = string::tformat("::%s", identifier);
 
-	ws.modules.@each(; mod_name, mod)
+	session.ctx.modules.@each(; mod_name, mod)
 	{
 		if (mod_name == identifier) return mod;
 		if (scoped_path.len > 0 && mod_name == scoped_path) return mod;
@@ -315,15 +317,15 @@ fn void inject_type_properties(Context* ctx, List{CompletionItem}* items, NodeKi
 	}
 }
 
-fn String format_contract_markdown(ModuleSection* section, ContractDecl* contract, String signature)
+fn String format_contract_markdown(ContractDecl* contract, String signature)
 {
 	DString md = dstring::temp_with_capacity(512);
 
 	md.appendf("```\n%s\n```\n", signature);
 	
-	String? raw_doc = contract.comment.text;
-	if (try raw_doc && raw_doc.len > 0)
+	if (contract.comment && contract.comment.text.len > 0)
 	{
+		String raw_doc = contract.comment.text;
 		log::info("raw doc: %s", raw_doc);
 		String doc_clean = raw_doc.trim().treplace("\"", "");
 		md.appendf("\n%s\n", doc_clean.trim());
@@ -422,4 +424,15 @@ fn String format_contract_markdown(ModuleSection* section, ContractDecl* contrac
 	log::info("formatted markdown: %s", escape_buf.str_view());
 
 	return escape_buf.str_view();
+}
+<*
+ True when `a` comes strictly before `b` in the source.
+
+ The analyzer reports line/column now, so ordering comparisons that used
+ to be plain integer offset checks need this.
+*>
+fn bool is_before(Location a, Location b)
+{
+	if (a.line != b.line) return a.line < b.line;
+	return a.column < b.column;
 }

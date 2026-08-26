@@ -4,7 +4,6 @@ import std::collections::object;
 import std::collections::maybe;
 
 import dessert;
-import derive;
 
 enum LogLevel : char (String name)
 {
@@ -15,14 +14,14 @@ enum LogLevel : char (String name)
 	ERROR { "error" }
 }
 
-$expand(derive(MarkupKind::name, dessert));
+$expand(dessert::@derive(MarkupKind));
 constdef MarkupKind : inline String
 {
 	PLAIN_TEXT = "plaintext",
 	MARKDOWN = "markdown"
 }
 
-$expand(derive(TraceKind::name, dessert));
+$expand(dessert::@derive(TraceKind));
 enum TraceKind : char (String name) @DEnum({ .as = FIELD, .field = "name" })
 {
 	OFF      { "off" },
@@ -30,14 +29,14 @@ enum TraceKind : char (String name) @DEnum({ .as = FIELD, .field = "name" })
 	VERBOSE  { "verbose" }
 }
 
-$expand(derive(InsertTextFormat::name, dessert));
+$expand(dessert::@derive(InsertTextFormat));
 constdef InsertTextFormat : int
 {
 	PLAIN_TEXT = 1,
 	SNIPPET = 2,
 }
 
-$expand(derive(DiagnosticSeverity::name, dessert));
+$expand(dessert::@derive(DiagnosticSeverity));
 constdef DiagnosticSeverity : int
 {
 	ERROR = 1,
@@ -46,14 +45,14 @@ constdef DiagnosticSeverity : int
 	HINT = 4,
 }
 
-$expand(derive(DiagnosticTag::name, dessert));
+$expand(dessert::@derive(DiagnosticTag));
 constdef DiagnosticTag : int 
 {
 	UNNECESSARY = 1,
 	DEPRECATED = 2,
 }
 
-$expand(derive(TextDocumentSyncKind::name, dessert));
+$expand(dessert::@derive(TextDocumentSyncKind));
 constdef TextDocumentSyncKind : int
 {
 	<*
@@ -73,7 +72,7 @@ constdef TextDocumentSyncKind : int
 	INCREMENTAL = 2,
 }
 
-$expand(derive(CompletionTriggerKind::name, dessert));
+$expand(dessert::@derive(CompletionTriggerKind));
 constdef CompletionTriggerKind : int
 {
 	<*
@@ -95,7 +94,7 @@ constdef CompletionTriggerKind : int
 	TRIGGER_FOR_INCOMPLETE_COMPLETIONS = 3,
 }
 
-$expand(derive(MessageType::name, dessert));
+$expand(dessert::@derive(MessageType));
 constdef MessageType : int
 {
     ERROR = 1,
@@ -107,7 +106,7 @@ constdef MessageType : int
 <*
     https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#completionItemKind
 *>
-$expand(derive(CompletionItemKind::name, dessert));
+$expand(dessert::@derive(CompletionItemKind));
 constdef CompletionItemKind : int
 {
 	TEXT = 1,

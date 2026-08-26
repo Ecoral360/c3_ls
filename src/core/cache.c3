@@ -1,6 +1,6 @@
 module lsp::core::cache;
 
-import derive, dessert;
+import dessert;
 
 import std::io;
 import std::time;
@@ -9,7 +9,7 @@ const String CACHE_DIR_NAME = ".lsp-cache";
 
 //const String DEFAULT_PATH = path::
 
-$expand(derive(MetaData::name, dessert));
+$expand(dessert::@derive(MetaData));
 struct MetaData
 {
 	long modified_time;

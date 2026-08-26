@@ -1,9 +1,8 @@
 module lsp;
 
 import dessert;
-import derive;
 
-$expand(derive(CompletionOptions::name, dessert));
+$expand(dessert::@derive(CompletionOptions));
 struct CompletionOptions @DStruct({ .rename_all = CAMEL_CASE })
 {
 	String[] trigger_characters;
@@ -18,7 +17,7 @@ struct CompletionOptions @DStruct({ .rename_all = CAMEL_CASE })
 <*
 	https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#serverCapabilities
 *>
-$expand(derive(LspServerCapabilities::name, dessert));
+$expand(dessert::@derive(LspServerCapabilities));
 struct LspServerCapabilities @DStruct({ .rename_all = CAMEL_CASE })
 {
 	TextDocumentSyncOptions text_document_sync;

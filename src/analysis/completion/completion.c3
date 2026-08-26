@@ -1,9 +1,9 @@
 module lsp::analysis::completion;
 
-import analyzer::workspace;
 import analyzer::core;
 import analyzer::cursor;
 import analyzer::sema;
+import analyzer::sema::scope;
 
 import std::collections::list;
 import std::collections::map;
@@ -11,16 +11,18 @@ import std::collections::set;
 
 import lsp::core;
 import uri;
-import analyzer::core::lexer;
+import analyzer::lexer;
 
 struct Context
 {
 	Uri uri;
 	LspPosition position;
+	Location location;
 	sz offset;
-	sz base_offset;
-	Workspace* ws;
-	ModuleSection* section;
+	LspSession* session;
+	FileEntry* file;
+	SourceFile* sf;
+	Module* mod;
 	Allocator allocator;
 	String prefix;
 	ScopeKind scope;
@@ -33,19 +35,23 @@ struct Context
 
 	LspAccessKind access;
 	String base_identifier; // Stores 'variable' or 'Type' string found before the operator
+	Location base_location;
 }
 
+<*
+ The session keeps every file's lexer alive, so the token list is already
+ built; nothing needs re-lexing here.
+*>
 fn void context_populate_tokens(Context* ctx)
 {
-    ctx.tokens.tinit();
-    
-    String src = ctx.section.source_file.source;
-    Lexer lexer = { .buffer = src };
+	ctx.tokens.tinit();
 
-    while (try t = lexer.next())
-    {
-        ctx.tokens.push(t);
-    }
+	if (!ctx.sf || !ctx.sf.lexer) return;
+
+	foreach (Token t : ctx.sf.lexer.tokens)
+	{
+		ctx.tokens.push(t);
+	}
 }
 
 <*
@@ -54,39 +60,31 @@ fn void context_populate_tokens(Context* ctx)
 fn void? resolve_item(LspProject* project, CompletionItem* item)
 {
 	if (!item.data) return;
-    String metadata = item.data;
+	String metadata = item.data;
 
 	sz split_idx = metadata.index_of_char(';') ?? -1;
-    if (split_idx < 0) return;
+	if (split_idx < 0) return;
 
 	String id_str = metadata[..split_idx];
-    String symbol_name = metadata[split_idx + 1..];
-	
-	ulong section_id = id_str.to_ulong() ?? 0;
 
-	ModuleSection* section = workspace::get_section_from_id(&project.workspace, section_id);
-    if (!section) return;
+	ulong node_id = id_str.to_ulong() ?? 0;
+	if (node_id == 0) return;
 
-	List{SymbolEntry}*? entries = project.workspace.lookup_in_module(section.parent_module.name, symbol_name);
-    if (catch err = entries)
-	{
-		log::error("Failed to acquire symbol: %s", err);
-		return;
-	}
-	if (entries == null) return;
-	SymbolEntry entry = entries.get(0);
+	Node* node = find_node_by_id(&project.session, node_id);
+	if (!node) return;
 
-	switch (entry.node.kind)
+	switch (node.kind)
 	{
 		case FN_DECL:
 		{
 			item.documentation.kind = MARKDOWN;
-			Cursor cursor = { entry.node };
-			String signature = cursor.signature_text(section.source_file) ?? "fn";
-			FnDecl* decl = entry.node.as(FnDecl);
+			String signature = project.session.node_signature_text(node);
+			if (signature.len == 0) signature = "fn";
+
+			FnDecl* decl = node.as(FnDecl);
 			if (try val = decl.contract.get())
 			{
-				item.documentation.value = analysis::format_contract_markdown(section, val.as(ContractDecl), signature);
+				item.documentation.value = analysis::format_contract_markdown(val.as(ContractDecl), signature);
 			}
 			else
 			{
@@ -97,63 +95,71 @@ fn void? resolve_item(LspProject* project, CompletionItem* item)
 	}
 }
 
+<*
+ The old completion payload carried a ModuleSection id; sections are gone,
+ so items now carry the NodeID and we look the node back up here.
+*>
+fn Node* find_node_by_id(LspSession* session, ulong node_id)
+{
+	Node* found;
+
+	session.ctx.modules.@each(; String name, Module* module_ptr)
+	{
+		if (!found) { if (try Node* node = module_ptr.node_map.get((NodeID)node_id)) found = node; }
+	};
+
+	return found;
+}
+
 fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos)
 {
 	log::debug("resolve");
+
 	Context ctx = (Context){
 		.uri = uri,
 		.position = pos,
-		.ws = &project.workspace,
+		.session = &project.session,
 		.allocator = tmem,
 	};
 
-	Location loc = { 
-		.line = (sz)ctx.position.line,
-		.column = (sz)ctx.position.character
-	};
+	ctx.location = { .line = (int)pos.line, .column = (int)pos.character };
 
-	log::info("resolve - editor location: %s:%s", loc.line + 1, loc.column + 1);
+	log::info("resolve - editor location: %s:%s", ctx.location.line + 1, ctx.location.column + 1);
 
 	List{CompletionItem} items; items.init(tmem);
-	List{ModuleSection*} file_sections = ctx.ws.find_section_by_path(uri.path);
-	if (file_sections.len() == 0)
+
+	ctx.file = project.session.entry(uri.path);
+	if (!ctx.file || !ctx.file.sf)
 	{
-		return items.array_view(); // No tracked sections for this file yet
+		return items.array_view(); // No tracked file yet
 	}
 
-	SourceFile* sf = file_sections.get(0).source_file;
-	sz offset = sf.line_map.get_offset(sf.source, loc);
+	ctx.sf = ctx.file.sf;
+	ctx.mod = project.session.module_for_file(uri.path);
+
+	String source = ctx.sf.content;
+	sz offset = ctx.file.lines.offset_of(ctx.location);
 	ctx.offset = offset;
-	ctx.prefix = analysis::extract_prefix(sf.source, (sz)offset).trim();
+	ctx.prefix = analysis::extract_prefix(source, offset).trim();
 
-	if (offset > 0 && sf.source[offset - 1] == ':')
-    {
-        if (offset < 2 || sf.source[offset - 2] != ':')
-        {
-            log::debug("Aborting completion: Triggered by a single ':' context.");
-            return items.array_view(); 
-        }
-    }
-
-	Location res_loc = sf.line_map.resolve(offset);
-	
-	log::info("resolve - parser location: %s:%s", res_loc.line + 1, res_loc.column + 1);
+	if (offset > 0 && source[offset - 1] == ':')
+	{
+		if (offset < 2 || source[offset - 2] != ':')
+		{
+			log::debug("Aborting completion: Triggered by a single ':' context.");
+			return items.array_view();
+		}
+	}
 
 	ctx.access = NONE;
 	ctx.base_identifier = "";
 
-	Cursor current_cursor = ctx.ws.find_top_level_statement_at_location(uri.path, loc, &ctx.section);
-	ctx.top_level_node = current_cursor.node;
-	if (!ctx.section)
-	{
-		ctx.section = file_sections.last()!;
-	}
+	ctx.top_level_node = core::top_level_at(ctx.sf, ctx.location);
+	ctx.leaf_node = cursor::find_at(ctx.sf.ast.statements.array_view(), { ctx.location, ctx.location });
 
-	ctx.leaf_node = cursor::find_at(ctx.section, (int)ctx.offset).node;
-	
 	context_populate_tokens(&ctx);
 	detect_access_context(&ctx);
-	ctx.scope = analysis::find_scope(&ctx, (int)offset);
+	ctx.scope = analysis::find_scope(&ctx, ctx.location);
 
 	log::info("access: %s", ctx.access.description);
 	log::info("Scope: %s", ctx.scope.description);
@@ -185,9 +191,7 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos)
 
 fn void provide_imports(Context* ctx, List{CompletionItem}* items)
 {
-	HashMap{String, Module*} modules = ctx.ws.modules;
-	
-	modules.@each(; name, mod)
+	ctx.session.ctx.modules.@each(; name, mod)
 	{
 		do SCOPE:
 		{

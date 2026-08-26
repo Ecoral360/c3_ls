@@ -12,7 +12,6 @@ import lsp::core::config;
 import dessert;
 import derive;
 import analyzer::core;
-import analyzer::workspace;
 import uri;
 import lsp::utils;
 import lsp::server;
@@ -30,11 +29,18 @@ fn void LspFile.free(&self)
 	self.uri.free();
 }
 
+struct QueuedFile
+{
+	String path;
+	String text;
+	bool from_disk;
+}
+
 struct LspProject
 {
 	HashMap{String, LspFile*} files;
-	List{FileInput} process_queue;
-	Workspace workspace;
+	List{QueuedFile} process_queue;
+	LspSession session;
 	ProjectConfig config;
 	HashMap{String, ManifestConfig} manifests;
 	Allocator allocator;
@@ -45,12 +51,12 @@ fn void LspProject.init(&self, Allocator allocator)
 	self.allocator = allocator;
 	self.files.init(allocator);
 	self.process_queue.init(allocator);
-	self.workspace.init(allocator, { .use_sema = true });
+	self.session.init(allocator);
 }
 
 fn void LspProject.free(&self)
 {
-	self.workspace.free();
+	self.session.free();
 	self.files.@each(; String uri, LspFile* file)
 	{
 		file.free();
@@ -99,24 +105,13 @@ fn void LspProject.open_file(&self, TextDocumentItem document, bool is_std_lib =
 
 	self.files[lookup_key] = lsp_file;
 
-	FileInput file;
+	QueuedFile queued = {
+		.path = lookup_key,
+		.text = lsp_file.text,
+		.from_disk = is_std_lib,
+	};
 
-	if (!is_std_lib)
-	{
-		file = {
-			.source_text = lsp_file.text,
-			.uri = lookup_key,
-		};
-	}
-	else
-	{
-		file = {
-			.path = lookup_key,
-			.uri = lookup_key,
-		};
-	}
-
-	self.process_queue.push(file);
+	self.process_queue.push(queued);
 }
 
 fn void LspProject.change_file(&self, DidChangeParams params)
@@ -151,11 +146,11 @@ fn void LspProject.change_file(&self, DidChangeParams params)
 		mem::free(file.text); 
 	}
 	file.text = params.content_changes[0].text.copy(self.allocator);
-	FileInput input = {
-		.source_text = file.text,
-		.uri = lookup_key
-	};
-	self.process_queue.push(input);
+	self.process_queue.push({
+		.path = lookup_key,
+		.text = file.text,
+		.from_disk = false,
+	});
 }
 
 fn void LspProject.close_file(&self, DocumentUri document)
@@ -180,22 +175,50 @@ fn void LspProject.close_file(&self, DocumentUri document)
 	file.free();
 	alloc::free(self.allocator, file);
 	self.files.remove(lookup_key);
+	self.session.remove_file(lookup_key);
 }
 
-fn void LspProject.update(&self)
+fn void LspProject.update(&self) => @pool()
 {
 	if (self.process_queue.is_empty()) return;
 
-	FileInput[] files = self.process_queue.array_view();
+	QueuedFile[] files = self.process_queue.array_view();
 	defer self.process_queue.clear();
-	ProcessResult? result = result = workspace::process_batch(&self.workspace, self.allocator, files);
-	if (catch err = result)
-	{   
-		log::error("Parsing failure (Error: %s)", err);
-		return;
+
+	self.session.clear_diagnostics();
+
+	List{String} touched;
+	touched.tinit();
+
+	foreach (QueuedFile queued : files)
+	{
+		String text = queued.text;
+
+		if (queued.from_disk)
+		{
+			String? loaded = (String)file::load(tmem, queued.path);
+			if (catch err = loaded)
+			{
+				log::error("Failed to load %s (Error: %s)", queued.path, err);
+				continue;
+			}
+			text = loaded;
+		}
+
+		self.session.set_file(queued.path, text);
+		touched.push(queued.path);
 	}
-	defer result.free();
-	publish_diag::publish(self.allocator, files, &result);
+
+	if (touched.is_empty()) return;
+
+	self.session.rebuild_index();
+
+	foreach (String path : touched)
+	{
+		self.session.analyze(path);
+	}
+
+	publish_diag::publish(self.allocator, &self.session, touched.array_view());
 }
 
 fn void LspProject.initial_process(&self)

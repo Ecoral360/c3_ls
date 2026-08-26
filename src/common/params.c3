@@ -6,7 +6,7 @@ import std::collections::maybe;
 import dessert;
 import derive;
 
-$expand(derive(MessageKind::name, dessert));
+$expand(dessert::@derive(MessageKind));
 enum MessageKind : char (String name) @DEnum({ .as = FIELD, .field = "name", .fallback = "UNKNOWN" })
 {
 	UNKNOWN      { "unknown" },
@@ -103,7 +103,7 @@ union MessageParams
 	SetTraceParams set_trace;
 }
 
-$expand(derive(InitializeParams::name, dessert));
+$expand(dessert::@derive(InitializeParams));
 struct InitializeParams @DStruct({ .rename_all = CAMEL_CASE })
 {
 	int process_id;
@@ -121,13 +121,13 @@ struct InitializeParams @DStruct({ .rename_all = CAMEL_CASE })
 	Maybe{WorkspaceFolder[]} workspace_folders;
 }
 
-$expand(derive(DidOpenParams::name, dessert));
+$expand(dessert::@derive(DidOpenParams));
 struct DidOpenParams
 {
 	TextDocumentItem document @DField({ .rename = "textDocument" });
 }
 
-$expand(derive(DidCloseParams::name, dessert));
+$expand(dessert::@derive(DidCloseParams));
 struct DidCloseParams
 {
 	struct document @DField({ .rename = "textDocument" })
@@ -136,7 +136,7 @@ struct DidCloseParams
 	}
 }
 
-$expand(derive(HoverParams::name, dessert));
+$expand(dessert::@derive(HoverParams));
 struct HoverParams
 {
 	struct document @DField({ .rename = "textDocument" })
@@ -146,7 +146,7 @@ struct HoverParams
 	LspPosition position;
 }
 
-$expand(derive(GoToDefinitionParams::name, dessert));
+$expand(dessert::@derive(GoToDefinitionParams));
 struct GoToDefinitionParams
 {
 	struct document @DField({ .rename = "textDocument" })
@@ -156,7 +156,7 @@ struct GoToDefinitionParams
 	LspPosition position;
 }
 
-$expand(derive(CompletionParams::name, dessert));
+$expand(dessert::@derive(CompletionParams));
 struct CompletionParams @DStruct({ .rename_all = CAMEL_CASE })
 {
 	struct text_document 
@@ -167,13 +167,13 @@ struct CompletionParams @DStruct({ .rename_all = CAMEL_CASE })
 	CompletionContext context;
 }
 
-$expand(derive(CompletionItemResolveParams::name, dessert));
+$expand(dessert::@derive(CompletionItemResolveParams));
 struct CompletionItemResolveParams
 {
 	inline CompletionItem item;
 }
 
-$expand(derive(PublishDiagnosticsParams::name, dessert));
+$expand(dessert::@derive(PublishDiagnosticsParams));
 struct PublishDiagnosticsParams
 {
 	DocumentUri uri;
@@ -182,19 +182,19 @@ struct PublishDiagnosticsParams
 	LspDiagnostic[] diagnostics;
 }
 
-$expand(derive(CancelParams::name, dessert));
+$expand(dessert::@derive(CancelParams));
 struct CancelParams
 {
 	int id;
 }
 
-$expand(derive(SetTraceParams::name, dessert));
+$expand(dessert::@derive(SetTraceParams));
 struct SetTraceParams
 {
 	TraceKind value;
 }
 
-$expand(derive(TextDocumentContentChangeEvent::name, dessert));
+$expand(dessert::@derive(TextDocumentContentChangeEvent));
 struct TextDocumentContentChangeEvent @DStruct({ .rename_all = CAMEL_CASE })
 {
 	LspRange range;
@@ -202,14 +202,14 @@ struct TextDocumentContentChangeEvent @DStruct({ .rename_all = CAMEL_CASE })
 	String text;
 }
 
-$expand(derive(DidChangeParams::name, dessert));
+$expand(dessert::@derive(DidChangeParams));
 struct DidChangeParams @DStruct({ .rename_all = CAMEL_CASE })
 {
 	VersionedTextDocumentIdentifier document @DField({ .rename = "textDocument" });
 	TextDocumentContentChangeEvent[] content_changes;
 }
 
-$expand(derive(LogMessageParams::name, dessert));
+$expand(dessert::@derive(LogMessageParams));
 struct LogMessageParams
 {
 	int type;

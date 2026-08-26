@@ -10,13 +10,12 @@ import std::collections::object;
 import std::collections::maybe;
 
 import dessert;
-import derive;
 import lsp::io_handler;
 
 import lsp::analysis;
 import uri;
 
-$expand(derive(LspGoToDefinitionResponse::name, dessert::serialize));
+$expand(dessert::@derive(LspGoToDefinitionResponse, serialize));
 struct LspGoToDefinitionResponse @DStruct({ .rename_all = CAMEL_CASE })
 {	
 	String jsonrpc;
@@ -25,7 +24,7 @@ struct LspGoToDefinitionResponse @DStruct({ .rename_all = CAMEL_CASE })
 	LspLocation[] result;
 }
 
-$expand(derive(LspServerCapabilities::name, dessert));
+$expand(dessert::@derive(LspServerCapabilities));
 struct LspServerCapabilities @DStruct({ .rename_all = CAMEL_CASE })
 {
 	bool dynamic_registration;

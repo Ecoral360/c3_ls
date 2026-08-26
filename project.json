@@ -21,7 +21,6 @@
   "targets": {
     "c3_ls": {
       "features": [
-        "ANALYZER_LIB",
         "SEMA"
       ],
       "type": "executable"

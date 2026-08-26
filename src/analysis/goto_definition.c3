@@ -1,6 +1,5 @@
 module lsp::analysis::goto_definition;
 
-import analyzer::workspace;
 import analyzer::core;
 import analyzer::cursor;
 import analyzer::sema;
@@ -12,38 +11,34 @@ import lsp::core;
 
 import uri;
 
-String string;
-
 fn LspLocation[]? goto_definition(LspProject* project, Uri uri, LspPosition pos)
 {
 	log::info("goto definition");
+
 	Location loc = { 
-		.line = (sz)pos.line,
-		.column = (sz)pos.character
+		.line = (int)pos.line,
+		.column = (int)pos.character
 	};
 
 	log::info("resolve - editor location: %s:%s", loc.line + 1, loc.column + 1);
 	
-	List{ModuleSection*} file_sections = project.workspace.find_section_by_path(uri.path);
-	if (file_sections.len() == 0)
+	FileEntry* entry = project.session.entry(uri.path);
+	if (!entry || !entry.sf)
 	{
-		log::info("No sections found for: %s", uri.path);
+		log::info("No tracked file for: %s", uri.path);
 		return {};
 	}
-	
-	SourceFile* sf = file_sections.get(0).source_file;
-	sz offset = sf.line_map.get_offset(sf.source, loc);
 
-	Cursor cursor = cursor::find_at(file_sections.get(0), (int)offset);
-	if (!cursor.is_valid())
+	Node* node = cursor::find_at(entry.sf.ast.statements.array_view(), { loc, loc });
+	if (!node || !node.is_valid())
 	{
 		log::error("Cursor not found!");
 		return {};
 	}
 
-	log::info("Kind: %s", cursor.node.kind.description);
+	log::info("Kind: %s", node.kind.description);
 
-	String symbol = extract_symbol_at_cursor(cursor, offset) ?? "";
+	String symbol = extract_symbol_at_cursor(node, loc) ?? "";
 	if (!symbol)
 	{
 		log::error("No valid symbol targeted at this offset context.");
@@ -53,35 +48,31 @@ fn LspLocation[]? goto_definition(LspProject* project, Uri uri, LspPosition pos)
 	log::info("symbol: %s", symbol);
 
 	List{LspLocation} locations; locations.tinit();
-	List{SymbolEntry} entries = project.workspace.find_symbol_by_name(symbol);
+	List{SymbolRef} entries = project.session.find_symbols(symbol);
 
 	if (entries.len() <= 0)
 	{
 		log::error("No entries found for symbol: %s", symbol);
 	}
 	
-	foreach (entry : entries)
+	foreach (SymbolRef ref : entries)
 	{
-		ModuleSection* section = workspace::get_section_from_id(&project.workspace, (ulong)entry.section_id);
-		if (!section) continue;
+		if (!ref.node || !ref.owner) continue;
 
-		SourceFile* tsf = section.source_file;
+		Range range = ref.node.range;
 
-		Location start_loc = tsf.line_map.resolve((sz)entry.node.offset.start);
-		Location end_loc = tsf.line_map.resolve((sz)entry.node.offset.end);
-
-		log::debug("Adding location: %s-%s", start_loc.line, start_loc.column);
+		log::debug("Adding location: %s-%s", range.start.line, range.start.column);
 
 		LspLocation entry_loc = {
-			.uri = (DocumentUri)string::tformat("%s", uri::from_file_path(tmem, section.source_file.file_path)),
+			.uri = (DocumentUri)string::tformat("%s", uri::from_file_path(tmem, ref.owner.path)),
 			.range = {
 				.start = {
-					.line = (uint)start_loc.line,
-					.character = (uint)start_loc.column
+					.line = (uint)range.start.line,
+					.character = (uint)range.start.column
 				},
 				.end = {
-					.line = (uint)end_loc.line,
-					.character = (uint)end_loc.column
+					.line = (uint)range.end.line,
+					.character = (uint)range.end.column
 				}
 			}
 		};
@@ -93,16 +84,9 @@ fn LspLocation[]? goto_definition(LspProject* project, Uri uri, LspPosition pos)
 	return locations.array_view();
 }
 
-fn bool is_offset_in_range(sz offset, ByteOffset range) @inline
+fn String? extract_symbol_at_cursor(Node* node, Location loc)
 {
-	int target = (int)offset;
-	return target >= range.start && target <= range.end;
-}
-
-fn String? extract_symbol_at_cursor(Cursor cursor, sz offset)
-{
-	if (!cursor.is_valid()) return "";
-	Node* node = cursor.node;
+	if (!node || !node.is_valid()) return "";
 
 	switch (node.kind)
 	{
@@ -110,7 +94,7 @@ fn String? extract_symbol_at_cursor(Cursor cursor, sz offset)
 		{
 			FnDecl* fndecl = node.as(FnDecl);
 			
-			if (!is_offset_in_range(offset, fndecl.name.range)) 
+			if (!fndecl.name || !fndecl.name.range.contains(loc)) 
 			{
 				log::info("Cursor inside FN_DECL but missed the name token.");
 				return "";
@@ -121,7 +105,7 @@ fn String? extract_symbol_at_cursor(Cursor cursor, sz offset)
 		{
 			StructDecl* structdecl = node.as(StructDecl);
 			
-			if (!is_offset_in_range(offset, structdecl.name.range)) return "";
+			if (!structdecl.name || !structdecl.name.range.contains(loc)) return "";
 			
 			return structdecl.name.text;
 		}
@@ -130,14 +114,14 @@ fn String? extract_symbol_at_cursor(Cursor cursor, sz offset)
 		{
 			VarDecl* vardecl = node.as(VarDecl);
 			
-			if (!is_offset_in_range(offset, vardecl.name.range)) return "";
+			if (!vardecl.name || !vardecl.name.range.contains(loc)) return "";
 			return vardecl.name.text;
 		}
 		case TYPE_EXPR:
 		{
-			return cursor.raw_type_identifier();
+			return cursor::raw_type_identifier(node);
 		}
 		default:
-			return cursor.spelling(tmem);;
+			return cursor::spelling(node, tmem);
 	}
 }

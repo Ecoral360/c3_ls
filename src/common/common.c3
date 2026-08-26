@@ -4,7 +4,6 @@ import std::collections::object;
 import std::collections::maybe;
 
 import dessert;
-import derive;
 
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification
 
@@ -12,14 +11,14 @@ alias LspUri = String;
 alias DocumentUri = String;
 
 
-$expand(derive(WorkspaceFolder::name, dessert));
+$expand(dessert::@derive(WorkspaceFolder));
 struct WorkspaceFolder 
 {
 	LspUri uri;
 	String name;
 }
 
-$expand(derive(TextDocumentItem::name, dessert));
+$expand(dessert::@derive(TextDocumentItem));
 struct TextDocumentItem @DStruct({ .rename_all = CAMEL_CASE })
 {
 	DocumentUri uri;
@@ -28,7 +27,7 @@ struct TextDocumentItem @DStruct({ .rename_all = CAMEL_CASE })
 	String text;
 }
 
-$expand(derive(LspPosition::name, dessert));
+$expand(dessert::@derive(LspPosition));
 struct LspPosition 
 {
 	<*
@@ -44,14 +43,14 @@ struct LspPosition
 	uint character;
 }
 
-$expand(derive(LspRange::name, dessert));
+$expand(dessert::@derive(LspRange));
 struct LspRange 
 {
 	LspPosition start;
 	LspPosition end;
 }
 
-$expand(derive(LspLocation::name, dessert));
+$expand(dessert::@derive(LspLocation));
 struct LspLocation 
 {
 	DocumentUri uri;
@@ -59,7 +58,7 @@ struct LspLocation
 }
 
 
-$expand(derive(Diagnostic::name, dessert));
+$expand(dessert::@derive(Diagnostic));
 struct Diagnostic 
 {
 	LspRange range;
@@ -69,21 +68,21 @@ struct Diagnostic
 	DiagnosticTag[] tags;
 }
 
-$expand(derive(MarkedString::name, dessert));
+$expand(dessert::@derive(MarkedString));
 struct MarkedString 
 {
 	String language;
 	String value;
 }
 
-$expand(derive(MarkupContent::name, dessert));
+$expand(dessert::@derive(MarkupContent));
 struct MarkupContent
 {
 	MarkupKind kind;
 	String value;
 }
 
-$expand(derive(TextDocumentSyncOptions::name, dessert));
+$expand(dessert::@derive(TextDocumentSyncOptions));
 struct TextDocumentSyncOptions @DStruct({ .rename_all = CAMEL_CASE })
 {
 	<*
@@ -95,7 +94,7 @@ struct TextDocumentSyncOptions @DStruct({ .rename_all = CAMEL_CASE })
 	TextDocumentSyncKind change;
 }
 
-$expand(derive(CompletionContext::name, dessert));
+$expand(dessert::@derive(CompletionContext));
 struct CompletionContext
 {
 	CompletionTriggerKind trigger_kind;
@@ -107,7 +106,7 @@ struct CompletionContext
 	Maybe{String} trigger_character;
 }
 
-$expand(derive(CompletionItem::name, dessert));
+$expand(dessert::@derive(CompletionItem));
 struct CompletionItem @DStruct({ .rename_all = CAMEL_CASE })
 {
 	String label;
@@ -126,7 +125,7 @@ struct CompletionItem @DStruct({ .rename_all = CAMEL_CASE })
 	String data @DField({ .skip_if_empty = true });
 }
 
-$expand(derive(VersionedTextDocumentIdentifier::name, dessert));
+$expand(dessert::@derive(VersionedTextDocumentIdentifier));
 struct VersionedTextDocumentIdentifier @DStruct({ .rename_all = CAMEL_CASE })
 {
     DocumentUri uri;

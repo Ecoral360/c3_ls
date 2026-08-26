@@ -10,7 +10,6 @@ import std::collections::object;
 import std::collections::maybe;
 
 import dessert;
-import derive;
 import lsp::io_handler;
 
 import lsp::analysis;
@@ -30,7 +29,7 @@ union MarkupContentUnion
 	MarkupContent markup_content;
 }
 
-$expand(derive(LspHoverResponse::name, dessert::serialize));
+$expand(dessert::@derive(LspHoverResponse, serialize));
 struct LspHoverResponse @DStruct({ .rename_all = CAMEL_CASE })
 {	
 	String jsonrpc;
@@ -48,7 +47,7 @@ struct LspHoverResponse @DStruct({ .rename_all = CAMEL_CASE })
 	}
 }
 
-$expand(derive(LspServerCapabilities::name, dessert));
+$expand(dessert::@derive(LspServerCapabilities));
 struct LspServerCapabilities @DStruct({ .rename_all = CAMEL_CASE })
 {
 	bool dynamic_registration;

@@ -1,6 +1,5 @@
 module lsp::analysis::hover;
 
-import analyzer::workspace;
 import analyzer::core;
 import analyzer::cursor;
 
@@ -10,47 +9,47 @@ import std::collections::map;
 import lsp::core;
 
 import uri;
-import analyzer::core::lexer;
+import analyzer::lexer;
 
 fn String? hover(LspProject* project, Uri uri, LspPosition pos)
 {
 	log::info("hover");
+
 	Location loc = { 
-		.line = (sz)pos.line,
-		.column = (sz)pos.character
+		.line = (int)pos.line,
+		.column = (int)pos.character
 	};
 	
 	log::info("resolve - editor location: %s:%s", loc.line + 1, loc.column + 1);
 	
-	List{ModuleSection*} file_sections = project.workspace.find_section_by_path(uri.path);
-	if (file_sections.len() == 0)
+	FileEntry* entry = project.session.entry(uri.path);
+	if (!entry || !entry.sf)
 	{
 		return "";
 	}
-	
-	SourceFile* sf = file_sections.get(0).source_file;
-	sz offset = sf.line_map.get_offset(sf.source, loc);
 
-	Lexer lexer = { .buffer = sf.source, .index = 0 };
-	Token? target_token = lexer.find_token_at((int)offset);
-	if (catch target_token) return "";
+	SourceFile* sf = entry.sf;
 
-	switch
+	Token target_token;
+	if (core::token_at(sf, loc, &target_token))
 	{
-		case target_token.kind.is_keyword():
+		switch
 		{
-			return get_keyword_docs(target_token.kind);
-		}
-		case target_token.kind.is_base_type():
-		{
-			return get_base_type_docs(target_token.kind);
+			case target_token.kind.is_keyword():
+			{
+				return get_keyword_docs(target_token.kind);
+			}
+			case target_token.kind.is_base_type():
+			{
+				return get_base_type_docs(target_token.kind);
+			}
 		}
 	}
 
-	Cursor cursor = cursor::find_at(file_sections.get(0), (int)offset);
-	if (!cursor.is_valid()) return "";
+	Node* node = cursor::find_at(sf.ast.statements.array_view(), { loc, loc });
+	if (!node || !node.is_valid()) return "";
 
-	return cursor.spelling(tmem);
+	return cursor::spelling(node, tmem);
 }
 
 fn String get_keyword_docs(TokenKind kind)
@@ -100,7 +99,7 @@ fn String get_keyword_docs(TokenKind kind)
 		case UNION:      return "union";
 		case VAR:        return "var";
 		case WHILE:      return "while";
-		default: unreachable();
+		default: return "";
 	}
 }
 
@@ -133,7 +132,7 @@ fn String get_base_type_docs(TokenKind kind)
 		case FAULT_TYPE:          return "fault";
 		case TYPEID_TYPE:         return "typeid";
 		case UNTYPEDLIST_TYPE:    return "untypedlist";
-		default: unreachable();
+		default: return "";
 	}
 }
 

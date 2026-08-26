@@ -7,13 +7,12 @@ import std::collections::object;
 import std::core::string;
 
 import dessert;
-import derive;
 
 faultdef
 	INVALID_MESSAGE,
 	INCOMPLETE_JSON;
 
-$expand(derive(LspMessage::name, dessert));
+$expand(dessert::@derive(LspMessage));
 struct LspMessage
 {
 	String rpc @DField({ .rename = "jsonrpc" });

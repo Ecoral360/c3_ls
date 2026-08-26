@@ -8,19 +8,18 @@ import std::collections::maybe;
 import std::collections::list;
 
 import dessert;
-import derive;
 
 import uri;
 
 int next_id @local = 1000;
 
-$expand(derive(MessageActionItem::name, dessert));
+$expand(dessert::@derive(MessageActionItem));
 struct MessageActionItem
 {
     String title;
 }
 
-$expand(derive(ShowMessageRequestParams::name, dessert));
+$expand(dessert::@derive(ShowMessageRequestParams));
 struct ShowMessageRequestParams
 {
     MessageType type;
@@ -28,7 +27,7 @@ struct ShowMessageRequestParams
     Maybe{MessageActionItem[]} actions;
 }
 
-$expand(derive(LspShowMessageRequest::name, dessert));
+$expand(dessert::@derive(LspShowMessageRequest));
 struct LspShowMessageRequest
 {
     String jsonrpc;

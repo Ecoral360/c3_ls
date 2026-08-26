@@ -1,14 +1,16 @@
 module lsp::analysis::completion;
 
-import analyzer::workspace;
 import analyzer::core;
 import analyzer::cursor;
+import analyzer::lexer;
 import analyzer::sema;
+import analyzer::sema::scope;
+
+import lsp::core;
 
 import std::collections::list;
 import std::collections::map;
 
-import lsp::core;
 import uri;
 
 <*
@@ -25,7 +27,7 @@ fn void detect_access_context(Context* ctx)
 	for (sz i = 0; i < ctx.tokens.len(); i++)
 	{
 		// If this token starts at or past the cursor, the operator must be the previous one
-		if (ctx.tokens[i].pos >= ctx.offset)
+		if (!analysis::is_before(ctx.tokens[i].range.start, ctx.location))
 		{
 			op_idx = i - 1;
 			break;
@@ -46,9 +48,8 @@ fn void detect_access_context(Context* ctx)
 			case HASH_IDENT:
 			case AT_IDENT:
 				ctx.access = (op_tok.kind == SCOPE) ? LspAccessKind.STATIC : LspAccessKind.INSTANCE;
-				String src = ctx.section.source_file.source;
-				ctx.base_identifier = src[base_tok.pos:base_tok.len];
-				ctx.base_offset = base_tok.pos;		
+				ctx.base_identifier = base_tok.value;
+				ctx.base_location = base_tok.range.start;
 			default:
 				break;
 		}
@@ -85,83 +86,61 @@ fn bool provide_static_access(Context* ctx, List{CompletionItem}* items)
 {
 	provide_module_paths(ctx, items);
 
-	SemaScope* leaf = sema::find_deepest_scope(&ctx.section.scope, (int)ctx.offset);
-	SemaVar? sema_var = leaf.find_variable(ctx.base_identifier);
-	if (try sema_var && sema_var.def)
+	if (ctx.file)
 	{
-		return provide_type_static_completions(ctx, items, sema_var.def);
+		Scope* leaf = core::find_deepest_scope(ctx.file.root_scope, ctx.location);
+		VariableInfo* info = leaf ? scope::get_variable(leaf, ctx.base_identifier) : null;
+		if (info && info.node)
+		{
+			return provide_type_static_completions(ctx, items, info.node);
+		}
 	}
 
-	Module* target_mod = analysis::find_module_by_identifier(ctx.ws, ctx.section.parent_module.name, ctx.base_identifier);
+	String current_module = ctx.mod ? ctx.mod.name : "";
+	Module* target_mod = analysis::find_module_by_identifier(ctx.session, current_module, ctx.base_identifier);
 	if (target_mod) 
 	{
 		collect_module_symbols(ctx, items, target_mod);
 		return true;
 	}
 
-	List{SymbolEntry}? candidates = ctx.ws.find_symbol_by_name(ctx.base_identifier);
-	if (try candidates) 
+	List{SymbolRef} candidates = ctx.session.find_symbols(ctx.base_identifier);
+	if (candidates.len() > 0 && candidates[0].node)
 	{
-		if (candidates.len() > 0 && candidates[0].node)
-		{
-			analysis::inject_type_properties(ctx, items, candidates[0].node.kind);
-			return true;
-		}
+		analysis::inject_type_properties(ctx, items, candidates[0].node.kind);
+		return true;
 	}
 
 	return false;
 }
 
+<*
+ TODO: member completion through an expression chain is disabled.
+
+ It needed cursor::resolve_chained_type, which the analyzer removed along
+ with the sema type resolution it was built on (sema::resolve is a stub
+ and TypeInfo.resolved is never populated). Re-enable once the analyzer
+ can resolve a variable's declared type back to a declaration node.
+*>
 fn bool provide_instance_access(Context* ctx, List{CompletionItem}* items)
 {
-	List{String} chain = analysis::get_expression_chain(ctx);
-	if (chain.len() == 0) return false;
-
-	SemaScope* leaf = sema::find_deepest_scope(&ctx.section.scope, (int)ctx.offset);
-	SymbolEntry result = cursor::resolve_chained_type(ctx.ws, leaf, chain.array_view());
-
-	if (!result.node) return false;
-
-	switch (result.node.kind)
-	{
-	case STRUCT_DECL:
-		{
-			StructDecl* str_decl = result.node.as(StructDecl);
-			String type_name = str_decl.name.text;
-			collect_struct_fields(ctx, items, str_decl);
-			break;
-		}
-	//case INTERFACE_DECL:
-	//	{
-	//		InterfaceDecl* decl = result.node.as(InterfaceDecl);
-	//		collect_methods_for_type(ctx, items, decl.name.text);
-	//		break;
-	//	}
-	default:
-	}
-
-	//collect_methods_for_type(ctx, items, type_name);
-
-	return true;
+	return false;
 }
 
 fn void collect_module_symbols(Context* ctx, List{CompletionItem}* items, Module* mod)
 {
-	mod.symbols.@each(; symbol_name, symbol_list)
+	foreach (Node* node : mod.nodes)
 	{
-		do SYMB:
-		{
-			if (symbol_list.is_empty()) break SYMB;
-			if (ctx.prefix.len > 0 && !symbol_name.contains(ctx.prefix)) break SYMB;
+		if (!node) continue;
+		if (node.visibility != PUBLIC) continue;
+		if (node.kind == MODULE_DECL || node.kind == IMPORT_DECL) continue;
 
-			foreach (entry : symbol_list)
-			{
-				if (entry.node.visibility != PUBLIC) break SYMB;
-				if (entry.node.kind == MODULE_DECL || entry.node.kind == IMPORT_DECL) break SYMB;
-				add_symbol_completion(ctx, items, symbol_name, entry.node, ctx.base_identifier);
-			}
-		};
-	};
+		String symbol_name = cursor::spelling(node, tmem) ?? "";
+		if (symbol_name.len == 0) continue;
+		if (ctx.prefix.len > 0 && !symbol_name.contains(ctx.prefix)) continue;
+
+		add_symbol_completion(ctx, items, symbol_name, node, ctx.base_identifier);
+	}
 }
 
 fn void collect_struct_fields(Context* ctx, List{CompletionItem}* items, StructDecl* str_decl)
@@ -174,48 +153,20 @@ fn void collect_struct_fields(Context* ctx, List{CompletionItem}* items, StructD
 		String name = field.name.text;
 		if (ctx.prefix.len > 0 && !name.contains(ctx.prefix)) continue;
 
-		Cursor tc = { field.type };
-
 		items.push({
 			.label = name,
 			.kind = FIELD,
-			.detail = tc.spelling(tmem) ?? ""
+			.detail = field.type ? (cursor::spelling(field.type, tmem) ?? "") : ""
 		});
 	}
 }
 
-fn void collect_methods_for_type(Context* ctx, List{CompletionItem}* items, String type_name)
-{
-	ctx.ws.modules.@each(; name, mod)
-	{
-		mod.registry.methods.@each(; MethodKey key, List{SymbolEntry} list)
-		{
-			do CHECK:
-			{
-				if (key.type_name != type_name) continue;
-				if (ctx.prefix.len > 0 && !key.method_name.contains(ctx.prefix)) continue;
-
-				foreach (en : list) {
-					items.push({
-						.label = key.method_name,
-						.kind = METHOD,
-						.detail = string::tformat("method of %s", type_name)
-					});
-					break;
-				}
-			};
-		};
-	};
-}
-
 fn bool provide_type_static_completions(Context* ctx, List{CompletionItem}* items, Node* var_def)
 {
-	Cursor type_cursor = { var_def };
-	String type_spelling = type_cursor.raw_type_identifier() ?? "";
+	String type_spelling = cursor::raw_type_identifier(var_def) ?? "";
 	if (type_spelling.len == 0) return false;
 
-	List{SymbolEntry}? candidates = ctx.ws.find_symbol_by_name(type_spelling);
-	if (catch candidates) return false;
+	List{SymbolRef} candidates = ctx.session.find_symbols(type_spelling);
 	if (candidates.len() == 0) return false;
 	if (!candidates[0].node) return false;
 

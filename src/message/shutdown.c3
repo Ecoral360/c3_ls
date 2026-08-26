@@ -8,9 +8,8 @@ import std::collections::maybe;
 import std::collections::object;
 
 import dessert;
-import derive;
 
-$expand(derive(LspShutdownResponse::name, dessert));
+$expand(dessert::@derive(LspShutdownResponse));
 struct LspShutdownResponse
 {
 	String jsonrpc;

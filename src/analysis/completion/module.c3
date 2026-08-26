@@ -1,26 +1,27 @@
 module lsp::analysis::completion;
 
-import analyzer::workspace;
 import analyzer::core;
 import analyzer::cursor;
 import analyzer::sema;
+import analyzer::sema::scope;
+
+import lsp::core;
 
 import std::collections::list;
 import std::collections::map;
 import std::collections::set;
 
-import lsp::core;
 import uri;						
-import analyzer::core::lexer;
+import analyzer::lexer;
 
 fn void provide_module_paths(Context* ctx, List{CompletionItem}* items)
 {
 	if (ctx.access != NONE) return;
 	if (ctx.scope != EXECUTION) return;
-	String current_mod = ctx.section.parent_module.name;
+	String current_mod = ctx.mod ? ctx.mod.name : "";
 	HashSet{String} added_segments;
 	
-	ctx.ws.modules.@each(; name, mod)
+	ctx.session.ctx.modules.@each(; name, mod)
 	{
 		do SCOPE:
 		{

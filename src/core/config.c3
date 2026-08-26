@@ -8,13 +8,12 @@ import std::collections::maybe;
 import std::io;
 
 import dessert;
-import derive;
 import uri;
 
 const String PROJECT_CONFIG_NAME = "project.json";
 const String MANIFEST_CONFIG_NAME = "manifest.json";
 
-$expand(derive(ProjectConfig::name, dessert));
+$expand(dessert::@derive(ProjectConfig));
 struct ProjectConfig
 {
 	String root_path @DField({ .skip = true });
@@ -52,7 +51,7 @@ fn void ProjectConfig.free(&self, Allocator allocator)
 	self.targets.free();
 }
 
-$expand(derive(ManifestConfig::name, dessert));
+$expand(dessert::@derive(ManifestConfig));
 struct ManifestConfig
 {
 	String[] sources;
@@ -74,7 +73,7 @@ fn void ManifestConfig.free(&self, Allocator alloc)
 	self.targets.free();
 }
 
-$expand(derive(TargetConfig::name, dessert));
+$expand(dessert::@derive(TargetConfig));
 struct TargetConfig
 {
 	Maybe{String[]} link_args;
