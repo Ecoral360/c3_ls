@@ -254,7 +254,7 @@ fn void LspProject.process_config(&self)
 		return;
 	}
 
-	log::error("base_path: %s", base_path);
+	// log::info("base_path: %s", base_path);
 
 	foreach (source_entry : self.config.sources)
 	{
@@ -275,7 +275,7 @@ fn void LspProject.process_config(&self)
 			continue;
 		}
 
-		log::error("Entry: %s", entry_path);
+		// log::info("Entry: %s", entry_path);
 		
 		PathList paths;
 		if (catch err = @try(paths, path::ls(tmem, entry_path, no_dirs: true, mask: mask, recursive: recursive, rebase: entry_path)))

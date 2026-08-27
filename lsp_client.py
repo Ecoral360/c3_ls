@@ -83,7 +83,10 @@ def cmd_initialize(proc, _args=None):
             "processId": os.getpid(),
             "clientInfo": {"name": "lsp_client.py", "version": "0.1.0"},
             "rootUri": None,
-            "workspaceFolders": [],
+            "workspaceFolders": [{
+                "uri": f"file://{__file__.rsplit("/", 1)[0]}",
+                "name": "project"
+            }],
         },
         "method": "initialize",
         "id": next_id(),
