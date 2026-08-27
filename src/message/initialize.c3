@@ -10,40 +10,32 @@ import std::collections::maybe;
 import dessert;
 
 $expand(dessert::@derive(LspInitializeResponse));
-struct LspInitializeResponse
-{
+struct LspInitializeResponse {
 	String jsonrpc;
 	int id;
-	struct result
-	{
+	struct result {
 		LspServerCapabilities capabilities;
-		struct serverInfo
-		{
+		struct serverInfo {
 			String name;
 			String version;
 		}
-	} 
+	}
 }
 
-fn void response(Allocator allocator, LspMessage* message)
-{
+fn void response(Allocator allocator, LspMessage* message) {
 	LspInitializeResponse response = {
 		.jsonrpc = message.rpc,
 		.id = message.id.get() ?? -1,
 		.result = {
-			.capabilities = { 
+			.capabilities = {
 				.text_document_sync = {
 					.open_close = true,
 					.change = FULL,
 				},
 				.completion_provider = {
-					.trigger_characters = {
-						".", ":", "@", " "
-					},
-                    .resolve_provider = true,
-                    .completion_item = {
-                        .label_detail_support = true
-                    }
+					.trigger_characters = { ".", ":", "@", " " },
+					.resolve_provider = true,
+					.completion_item = { .label_detail_support = true }
 				},
 				.hover_provider = true,
 				.definition_provider = true,

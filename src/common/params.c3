@@ -7,23 +7,22 @@ import dessert;
 import derive;
 
 $expand(dessert::@derive(MessageKind));
-enum MessageKind : char (String name) @DEnum({ .as = FIELD, .field = "name", .fallback = "UNKNOWN" })
-{
-	UNKNOWN      { "unknown" },
-	INITIALIZE   { "initialize" },
-	INITIALIZED  { "initialized" },
-	DID_OPEN     { "textDocument/didOpen" },
-	DID_CHANGE   { "textDocument/didChange" },
-	DID_CLOSE    { "textDocument/didClose" },
-	DID_SAVE     { "textDocument/didSave" },
-	FULL         { "textDocument/semanticTokens/full" },
-	SYMBOL       { "textDocument/documentSymbol" },
-	HOVER        { "textDocument/hover" },
-	COMPLETION   { "textDocument/completion" },
-	DEFINITION   { "textDocument/definition" },
-	DECLERATION  { "textDocument/declaration" },
-	REFERENCES   { "textDocument/references" },
-	HELP         { "textDocument/signatureHelp" },
+enum MessageKind : char (String name) @DEnum({ .as = FIELD, .field = "name", .fallback = "UNKNOWN" }) {
+	UNKNOWN            { "unknown" },
+	INITIALIZE         { "initialize" },
+	INITIALIZED        { "initialized" },
+	DID_OPEN           { "textDocument/didOpen" },
+	DID_CHANGE         { "textDocument/didChange" },
+	DID_CLOSE          { "textDocument/didClose" },
+	DID_SAVE           { "textDocument/didSave" },
+	FULL               { "textDocument/semanticTokens/full" },
+	SYMBOL             { "textDocument/documentSymbol" },
+	HOVER              { "textDocument/hover" },
+	COMPLETION         { "textDocument/completion" },
+	DEFINITION         { "textDocument/definition" },
+	DECLERATION        { "textDocument/declaration" },
+	REFERENCES         { "textDocument/references" },
+	HELP               { "textDocument/signatureHelp" },
 	RENAME             { "textDocument/rename" },
 	PREPARE_RENAME     { "textDocument/prepareRename" },
 	WILL_SAVE          { "textDocument/willSave" },
@@ -47,7 +46,7 @@ enum MessageKind : char (String name) @DEnum({ .as = FIELD, .field = "name", .fa
 	LINKED_EDITING     { "textDocument/linkedEditingRange" },
 	MONIKER            { "textDocument/moniker" },
 
-	PUB_DIAG         { "textDocument/publishDiagnostics" },
+	PUB_DIAG { "textDocument/publishDiagnostics" },
 
 	SHOW_MESSAGE     { "window/showMessage" },
 	LOG_MESSAGE      { "window/logMessage" },
@@ -69,23 +68,22 @@ enum MessageKind : char (String name) @DEnum({ .as = FIELD, .field = "name", .fa
 	WS_CODELENS_REFRESH { "workspace/codeLens/refresh" },
 	WS_INLAY_REFRESH    { "workspace/inlayHint/refresh" },
 
-	CALL_INCOMING    { "callHierarchy/incomingCalls" },
-	CALL_OUTGOING    { "callHierarchy/outgoingCalls" },
-	TYPE_SUPERTYPES  { "typeHierarchy/supertypes" },
-	TYPE_SUBTYPES    { "typeHierarchy/subtypes" },
+	CALL_INCOMING   { "callHierarchy/incomingCalls" },
+	CALL_OUTGOING   { "callHierarchy/outgoingCalls" },
+	TYPE_SUPERTYPES { "typeHierarchy/supertypes" },
+	TYPE_SUBTYPES   { "typeHierarchy/subtypes" },
 
 	COMPLETION_RESOLVE { "completionItem/resolve" },
 
-	SHUTDOWN     { "shutdown" },
-	EXIT         { "exit" },
-	CANCEL       { "$/cancelRequest" },
-	SET_TRACE    { "$/setTrace" },
-	PROGRESS     { "$/progress" },
-	LOG_TRACE    { "$/logTrace" },
+	SHUTDOWN  { "shutdown" },
+	EXIT      { "exit" },
+	CANCEL    { "$/cancelRequest" },
+	SET_TRACE { "$/setTrace" },
+	PROGRESS  { "$/progress" },
+	LOG_TRACE { "$/logTrace" },
 }
 
-union MessageParams
-{
+union MessageParams {
 	Object* unknown;
 	InitializeParams initialize;
 	DidOpenParams did_open;
@@ -104,11 +102,9 @@ union MessageParams
 }
 
 $expand(dessert::@derive(InitializeParams));
-struct InitializeParams @DStruct({ .rename_all = CAMEL_CASE })
-{
+struct InitializeParams @DStruct({ .rename_all = CAMEL_CASE }) {
 	int process_id;
-	struct client_info
-	{
+	struct client_info {
 		String name;
 		String version;
 	}
@@ -122,45 +118,36 @@ struct InitializeParams @DStruct({ .rename_all = CAMEL_CASE })
 }
 
 $expand(dessert::@derive(DidOpenParams));
-struct DidOpenParams
-{
+struct DidOpenParams {
 	TextDocumentItem document @DField({ .rename = "textDocument" });
 }
 
 $expand(dessert::@derive(DidCloseParams));
-struct DidCloseParams
-{
-	struct document @DField({ .rename = "textDocument" })
-	{
+struct DidCloseParams {
+	struct document @DField({ .rename = "textDocument" }) {
 		DocumentUri uri;
 	}
 }
 
 $expand(dessert::@derive(HoverParams));
-struct HoverParams
-{
-	struct document @DField({ .rename = "textDocument" })
-	{
+struct HoverParams {
+	struct document @DField({ .rename = "textDocument" }) {
 		DocumentUri uri;
 	}
 	LspPosition position;
 }
 
 $expand(dessert::@derive(GoToDefinitionParams));
-struct GoToDefinitionParams
-{
-	struct document @DField({ .rename = "textDocument" })
-	{
+struct GoToDefinitionParams {
+	struct document @DField({ .rename = "textDocument" }) {
 		DocumentUri uri;
 	}
 	LspPosition position;
 }
 
 $expand(dessert::@derive(CompletionParams));
-struct CompletionParams @DStruct({ .rename_all = CAMEL_CASE })
-{
-	struct text_document 
-	{
+struct CompletionParams @DStruct({ .rename_all = CAMEL_CASE }) {
+	struct text_document {
 		String uri;
 	}
 	LspPosition position;
@@ -168,14 +155,12 @@ struct CompletionParams @DStruct({ .rename_all = CAMEL_CASE })
 }
 
 $expand(dessert::@derive(CompletionItemResolveParams));
-struct CompletionItemResolveParams
-{
+struct CompletionItemResolveParams {
 	inline CompletionItem item;
 }
 
 $expand(dessert::@derive(PublishDiagnosticsParams));
-struct PublishDiagnosticsParams
-{
+struct PublishDiagnosticsParams {
 	DocumentUri uri;
 	Maybe{int} version @DField({ .skip_if_empty = true });
 
@@ -183,35 +168,30 @@ struct PublishDiagnosticsParams
 }
 
 $expand(dessert::@derive(CancelParams));
-struct CancelParams
-{
+struct CancelParams {
 	int id;
 }
 
 $expand(dessert::@derive(SetTraceParams));
-struct SetTraceParams
-{
+struct SetTraceParams {
 	TraceKind value;
 }
 
 $expand(dessert::@derive(TextDocumentContentChangeEvent));
-struct TextDocumentContentChangeEvent @DStruct({ .rename_all = CAMEL_CASE })
-{
+struct TextDocumentContentChangeEvent @DStruct({ .rename_all = CAMEL_CASE }) {
 	LspRange range;
 	uint range_length;
 	String text;
 }
 
 $expand(dessert::@derive(DidChangeParams));
-struct DidChangeParams @DStruct({ .rename_all = CAMEL_CASE })
-{
+struct DidChangeParams @DStruct({ .rename_all = CAMEL_CASE }) {
 	VersionedTextDocumentIdentifier document @DField({ .rename = "textDocument" });
 	TextDocumentContentChangeEvent[] content_changes;
 }
 
 $expand(dessert::@derive(LogMessageParams));
-struct LogMessageParams
-{
+struct LogMessageParams {
 	int type;
 	String message;
 }

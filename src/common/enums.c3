@@ -5,8 +5,7 @@ import std::collections::maybe;
 
 import dessert;
 
-enum LogLevel : char (String name)
-{
+enum LogLevel : char (String name) {
 	NONE  { "none" },
 	DEBUG { "debug" },
 	INFO  { "info" },
@@ -15,30 +14,26 @@ enum LogLevel : char (String name)
 }
 
 $expand(dessert::@derive(MarkupKind));
-constdef MarkupKind : inline String
-{
+constdef MarkupKind : inline String {
 	PLAIN_TEXT = "plaintext",
 	MARKDOWN = "markdown"
 }
 
 $expand(dessert::@derive(TraceKind));
-enum TraceKind : char (String name) @DEnum({ .as = FIELD, .field = "name" })
-{
+enum TraceKind : char (String name) @DEnum({ .as = FIELD, .field = "name" }) {
 	OFF      { "off" },
 	MESSAGES { "messages" },
 	VERBOSE  { "verbose" }
 }
 
 $expand(dessert::@derive(InsertTextFormat));
-constdef InsertTextFormat : int
-{
+constdef InsertTextFormat : int {
 	PLAIN_TEXT = 1,
 	SNIPPET = 2,
 }
 
 $expand(dessert::@derive(DiagnosticSeverity));
-constdef DiagnosticSeverity : int
-{
+constdef DiagnosticSeverity : int {
 	ERROR = 1,
 	WARNING = 2,
 	INFORMATION = 3,
@@ -46,15 +41,13 @@ constdef DiagnosticSeverity : int
 }
 
 $expand(dessert::@derive(DiagnosticTag));
-constdef DiagnosticTag : int 
-{
+constdef DiagnosticTag : int {
 	UNNECESSARY = 1,
 	DEPRECATED = 2,
 }
 
 $expand(dessert::@derive(TextDocumentSyncKind));
-constdef TextDocumentSyncKind : int
-{
+constdef TextDocumentSyncKind : int {
 	<*
 		Documents should not be synced at all.
 	*>
@@ -73,8 +66,7 @@ constdef TextDocumentSyncKind : int
 }
 
 $expand(dessert::@derive(CompletionTriggerKind));
-constdef CompletionTriggerKind : int
-{
+constdef CompletionTriggerKind : int {
 	<*
 	 	Completion was triggered by typing an identifier (24x7 code
 	  	complete), manual invocation (e.g Ctrl+Space) or via API.
@@ -95,8 +87,7 @@ constdef CompletionTriggerKind : int
 }
 
 $expand(dessert::@derive(MessageType));
-constdef MessageType : int
-{
+constdef MessageType : int {
     ERROR = 1,
     WARNING = 2,
     INFO = 3,
@@ -107,8 +98,7 @@ constdef MessageType : int
     https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#completionItemKind
 *>
 $expand(dessert::@derive(CompletionItemKind));
-constdef CompletionItemKind : int
-{
+constdef CompletionItemKind : int {
 	TEXT = 1,
 	METHOD = 2,
 	FUNCTION = 3,
@@ -137,8 +127,7 @@ constdef CompletionItemKind : int
 }
 
 //TODO: fill out docs
-enum Keywords : int (String name, String docs)
-{
+enum Keywords : int (String name, String docs) {
 	ALIAS     { "alias", "" },
 	ASSERT    { "assert", "" },
 	ASM       { "asm", "" },
@@ -184,10 +173,8 @@ enum Keywords : int (String name, String docs)
 	WHILE     { "while", "" },
 }
 
-fn bool Keywords.is_top_level(self)
-{
-	switch (self)
-	{
+fn bool Keywords.is_top_level(self) {
+	switch (self) {
 		case MODULE:
 		case IMPORT:
 		case ALIAS:
@@ -211,10 +198,8 @@ fn bool Keywords.is_top_level(self)
 	}
 }
 
-fn bool Keywords.is_container(self)
-{
-	switch (self)
-	{
+fn bool Keywords.is_container(self) {
+	switch (self) {
 		case INLINE:
 		case TLOCAL:
 			return true;
@@ -223,10 +208,8 @@ fn bool Keywords.is_container(self)
 	}
 }
 
-fn bool Keywords.is_statement(self)
-{
-	switch (self)
-	{
+fn bool Keywords.is_statement(self) {
+	switch (self) {
 		case ASSERT:
 		case ASM:
 		case CONST:
@@ -244,10 +227,8 @@ fn bool Keywords.is_statement(self)
 	}
 }
 
-fn bool Keywords.is_expression(self)
-{
-	switch (self)
-	{
+fn bool Keywords.is_expression(self) {
+	switch (self) {
 		case TRUE:
 		case FALSE:
 		case NULL:
@@ -257,10 +238,8 @@ fn bool Keywords.is_expression(self)
 	}
 }
 
-fn bool Keywords.is_value(self)
-{
-	switch (self)
-	{
+fn bool Keywords.is_value(self) {
+	switch (self) {
 		case TRUE:
 		case FALSE:
 		case NULL:

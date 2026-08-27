@@ -12,15 +12,13 @@ alias DocumentUri = String;
 
 
 $expand(dessert::@derive(WorkspaceFolder));
-struct WorkspaceFolder 
-{
+struct WorkspaceFolder {
 	LspUri uri;
 	String name;
 }
 
 $expand(dessert::@derive(TextDocumentItem));
-struct TextDocumentItem @DStruct({ .rename_all = CAMEL_CASE })
-{
+struct TextDocumentItem @DStruct({ .rename_all = CAMEL_CASE }) {
 	DocumentUri uri;
 	String language_id;
 	int version;
@@ -28,39 +26,35 @@ struct TextDocumentItem @DStruct({ .rename_all = CAMEL_CASE })
 }
 
 $expand(dessert::@derive(LspPosition));
-struct LspPosition 
-{
+struct LspPosition {
 	<*
-		Line position in a document (zero-based).
+	 Line position in a document (zero-based).
 	*>
 	uint line;
 	<*
-		Character offset on a line in a document (zero-based). The meaning of this
-		offset is determined by the negotiated `PositionEncodingKind`.
-				If the character value is greater than the line length it defaults back
-		to the line length.
+	 Character offset on a line in a document (zero-based). The meaning of this
+	 offset is determined by the negotiated `PositionEncodingKind`.
+	 If the character value is greater than the line length it defaults back
+	 to the line length.
 	*>
 	uint character;
 }
 
 $expand(dessert::@derive(LspRange));
-struct LspRange 
-{
+struct LspRange {
 	LspPosition start;
 	LspPosition end;
 }
 
 $expand(dessert::@derive(LspLocation));
-struct LspLocation 
-{
+struct LspLocation {
 	DocumentUri uri;
 	LspRange range;
 }
 
 
 $expand(dessert::@derive(Diagnostic));
-struct Diagnostic 
-{
+struct Diagnostic {
 	LspRange range;
 	DiagnosticSeverity severity;
 	String source;
@@ -69,25 +63,22 @@ struct Diagnostic
 }
 
 $expand(dessert::@derive(MarkedString));
-struct MarkedString 
-{
+struct MarkedString {
 	String language;
 	String value;
 }
 
 $expand(dessert::@derive(MarkupContent));
-struct MarkupContent
-{
+struct MarkupContent {
 	MarkupKind kind;
 	String value;
 }
 
 $expand(dessert::@derive(TextDocumentSyncOptions));
-struct TextDocumentSyncOptions @DStruct({ .rename_all = CAMEL_CASE })
-{
+struct TextDocumentSyncOptions @DStruct({ .rename_all = CAMEL_CASE }) {
 	<*
-		Open and close notifications are sent to the server. If omitted open
-		close notifications should not be sent.
+	 Open and close notifications are sent to the server. If omitted open
+	 close notifications should not be sent.
 	*>
 	bool open_close;
 
@@ -95,27 +86,25 @@ struct TextDocumentSyncOptions @DStruct({ .rename_all = CAMEL_CASE })
 }
 
 $expand(dessert::@derive(CompletionContext));
-struct CompletionContext
-{
+struct CompletionContext {
 	CompletionTriggerKind trigger_kind;
 	<*
-		The trigger character (a single character) that has trigger code
-	  	complete. Is undefined if
-		`triggerKind !== CompletionTriggerKind.TriggerCharacter`
+	 The trigger character (a single character) that has trigger code
+	 complete. Is undefined if
+	 `triggerKind !== CompletionTriggerKind.TriggerCharacter`
 	*>
 	Maybe{String} trigger_character;
 }
 
 $expand(dessert::@derive(CompletionItem));
-struct CompletionItem @DStruct({ .rename_all = CAMEL_CASE })
-{
+struct CompletionItem @DStruct({ .rename_all = CAMEL_CASE }) {
 	String label;
-    CompletionItemKind kind;
-    <*
-        A human-readable string with additional information
-	    about this item, like type or symbol information.
-    *>
-    String detail;
+	CompletionItemKind kind;
+	<*
+	 A human-readable string with additional information
+	 about this item, like type or symbol information.
+	*>
+	String detail;
 	MarkupContent documentation;
 	String insert_text;
 	InsertTextFormat insert_text_format;
@@ -126,8 +115,7 @@ struct CompletionItem @DStruct({ .rename_all = CAMEL_CASE })
 }
 
 $expand(dessert::@derive(VersionedTextDocumentIdentifier));
-struct VersionedTextDocumentIdentifier @DStruct({ .rename_all = CAMEL_CASE })
-{
-    DocumentUri uri;
-    int version;
+struct VersionedTextDocumentIdentifier @DStruct({ .rename_all = CAMEL_CASE }) {
+	DocumentUri uri;
+	int version;
 }

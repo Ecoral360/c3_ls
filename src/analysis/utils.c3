@@ -8,28 +8,22 @@ import lsp::core;
 
 import std::collections::list;
 
-fn String extract_prefix(String text, sz byte_offset)
-{
+fn String extract_prefix(String text, sz byte_offset) {
 	if (byte_offset == 0 || byte_offset > text.len) return "";
 
 	sz start_idx = byte_offset;
-	while (start_idx > 0)
-	{
+	while (start_idx > 0) {
 		char c = text[start_idx - 1];
-		if (c.is_alnum() || c == '_') 
-		{
+		if (c.is_alnum() || c == '_') {
 			start_idx--;
-		}
-		else 
-		{
-			switch (c)
-			{
+		} else {
+			switch (c) {
 				case '@':
 				case '#':
 				case '$':
 					start_idx--;
 					break;
-				default: 
+				default:
 					break;
 			}
 			break;
@@ -40,60 +34,54 @@ fn String extract_prefix(String text, sz byte_offset)
 	return text[start_idx..byte_offset];
 }
 
-fn CompletionItemKind completion_kind_from_node(Node* node)
-{
+fn CompletionItemKind completion_kind_from_node(Node* node) {
 	NodeKind kind = node.kind;
 
-	switch (kind)
-	{
-		case MODULE_DECL:    return MODULE;
-		case FN_DECL:        return FUNCTION;
-		case ENUM_DECL:      return ENUM;
+	switch (kind) {
+		case MODULE_DECL: return MODULE;
+		case FN_DECL: return FUNCTION;
+		case ENUM_DECL: return ENUM;
 		case INTERFACE_DECL: return INTERFACE;
-		case STRUCT_DECL:    return STRUCT;
+		case STRUCT_DECL: return STRUCT;
 		case VAR_DECL:
-		{
-			VarDecl* var_decl = node.as(VarDecl);
-			if (var_decl.var_flags.is_const)
+
 			{
-				return CONSTANT;
+				VarDecl* var_decl = node.as(VarDecl);
+				if (var_decl.var_flags.is_const) {
+					return CONSTANT;
+				}
+				switch (var_decl.var_kind) {
+					case VAR_FIELD:
+						return FIELD;
+					default:
+						return VARIABLE;
+				}
 			}
-			switch (var_decl.var_kind)
-			{
-				case VAR_FIELD:
-					return FIELD;
-				default:
-					return VARIABLE;
-			}
-		}
 		default:
 			return TEXT;
 	}
 }
 
 <*
+
 *>
-fn ScopeKind find_scope(Context* ctx, Location cursor_loc)
-{
+fn ScopeKind find_scope(Context* ctx, Location cursor_loc) {
 	if (!ctx.top_level_node) return GLOBAL;
 	Node* node = ctx.top_level_node;
 	if (!node.range.contains(cursor_loc)) return GLOBAL;
 
-	switch (node.kind)
-	{
-		case IMPORT_DECL: 
+	switch (node.kind) {
+		case IMPORT_DECL:
 			return IMPORT;
 		case FN_DECL:
 			FnDecl* func = node.as(FnDecl);
-			if (func.body && !is_before(cursor_loc, func.body.range.start))
-			{
+			if (func.body && !is_before(cursor_loc, func.body.range.start)) {
 				return EXECUTION;
 			}
 			break;
 		case MACRO_DECL:
 			MacroDecl* mac = node.as(MacroDecl);
-			if (mac.body && !is_before(cursor_loc, mac.body.range.start))
-			{
+			if (mac.body && !is_before(cursor_loc, mac.body.range.start)) {
 				return EXECUTION;
 			}
 			break;
@@ -101,72 +89,59 @@ fn ScopeKind find_scope(Context* ctx, Location cursor_loc)
 			break;
 	}
 
-	switch (node.kind)
-	{
+	switch (node.kind) {
 		case STRUCT_DECL:
-		{
-			ScopeKind scope = NONE;
-			int num_braces;
-			
-			foreach (t : ctx.tokens)
-			{
-				if (!is_before(t.range.start, cursor_loc)) break;
 
-				if (t.kind == LBRACE)
-				{ 
-					num_braces++;
-					scope = CONTAINER;
-				}
-				if (t.kind == RBRACE)
-				{ 
-					num_braces--;
-					if (num_braces <= 0)
-					{
-						scope = GLOBAL;
+			{
+				ScopeKind scope = NONE;
+				int num_braces;
+
+				foreach (t : ctx.tokens) {
+					if (!is_before(t.range.start, cursor_loc)) break;
+
+					if (t.kind == LBRACE) {
+						num_braces++;
+						scope = CONTAINER;
+					}
+					if (t.kind == RBRACE) {
+						num_braces--;
+						if (num_braces <= 0) {
+							scope = GLOBAL;
+						}
 					}
 				}
+				return scope;
 			}
-			return scope;
-		}
 
 		case FN_DECL:
 		case MACRO_DECL:
-		{
-			ScopeKind scope = GLOBAL;
-			int parens;
-			int braces;
 
-			foreach (t : ctx.tokens)
 			{
-				if (!is_before(t.range.start, cursor_loc)) break;
+				ScopeKind scope = GLOBAL;
+				int parens;
+				int braces;
 
-				if (t.kind == LBRACE)
-				{
-					braces++; 
-					scope = EXECUTION;
+				foreach (t : ctx.tokens) {
+					if (!is_before(t.range.start, cursor_loc)) break;
+
+					if (t.kind == LBRACE) {
+						braces++;
+						scope = EXECUTION;
+					} else if (t.kind == RBRACE) {
+						braces--;
+						scope = (braces == 0) ? GLOBAL : EXECUTION;
+					} else if (t.kind == LPAREN) {
+						parens++;
+						scope = PARAMETER;
+					} else if (t.kind == RPAREN) {
+						parens--;
+						scope = NONE;
+					} else if (braces == 0 && parens == 0 && t.kind == IDENT) {
+						scope = NONE;
+					}
 				}
-				else if (t.kind == RBRACE)
-				{
-					braces--; 
-					scope = (braces == 0) ? GLOBAL : EXECUTION; 
-				}
-				else if (t.kind == LPAREN)
-				{
-					parens++; 
-					scope = PARAMETER; 
-				}
-				else if (t.kind == RPAREN)
-				{ 
-					parens--; 
-					scope = NONE; 
-				}
-				else if (braces == 0 && parens == 0 && t.kind == IDENT)
-				{
-					scope = NONE;
-				}
+				return scope;
 			}
-			return scope;
-		}
 
 		default:
 			break;
@@ -176,15 +151,13 @@ fn ScopeKind find_scope(Context* ctx, Location cursor_loc)
 }
 
 <*
+
 *>
-fn ScopeKind find_node(Context* ctx, Location cursor_loc)
-{
+fn ScopeKind find_node(Context* ctx, Location cursor_loc) {
 	if (!ctx.top_level_node) return GLOBAL;
 	Node* node = ctx.top_level_node;
-	if (node.range.contains(cursor_loc))
-	{
-		switch (node.kind)
-		{
+	if (node.range.contains(cursor_loc)) {
+		switch (node.kind) {
 			case IMPORT_DECL:
 				return IMPORT;
 			case FN_DECL:
@@ -202,22 +175,16 @@ fn ScopeKind find_node(Context* ctx, Location cursor_loc)
 	return GLOBAL;
 }
 
-fn MarkupContent md(String md)
-{
-	return {
-		.value = md,
-		.kind = MARKDOWN
-	};
+fn MarkupContent md(String md) {
+	return { .value = md, .kind = MARKDOWN };
 }
 
-fn List{String} get_expression_chain(Context* ctx)
-{
-	List{String} chain; chain.tinit();
+fn List{String} get_expression_chain(Context* ctx) {
+	List{String} chain;
+	chain.tinit();
 	sz cursor_idx = -1;
-	for (sz i = 0; i < ctx.tokens.len(); i++) 
-	{
-		if (!is_before(ctx.tokens[i].range.start, ctx.location)) 
-		{
+	for (sz i = 0; i < ctx.tokens.len(); i++) {
+		if (!is_before(ctx.tokens[i].range.start, ctx.location)) {
 			cursor_idx = i - 1;
 			log::info("Found token: idx = %d", cursor_idx);
 			break;
@@ -225,50 +192,37 @@ fn List{String} get_expression_chain(Context* ctx)
 	}
 	if (cursor_idx == -1) return chain;
 	bool expect_ident = true;
-	for (sz i = cursor_idx; i >= 0; i--)
-	{
+	for (sz i = cursor_idx; i >= 0; i--) {
 		Token t = ctx.tokens[i];
-		if (expect_ident)
-		{
+		if (expect_ident) {
 			if (t.kind == DOT || t.kind == SCOPE) continue;
-			if (t.kind == IDENT || t.kind == TYPE_IDENT)
-			{
+			if (t.kind == IDENT || t.kind == TYPE_IDENT) {
 				chain.insert_at(0, t.value);
 				expect_ident = false;
 				log::info("appened!");
-			}
-			else
-			{
+			} else {
 				break;
 			}
-		}
-		else
-		{
-			if (t.kind == DOT || t.kind == SCOPE) 
-			{
+		} else {
+			if (t.kind == DOT || t.kind == SCOPE) {
 				expect_ident = true;
-			} 
-			else 
-			{
+			} else {
 				break;
 			}
 		}
 	}
-	
+
 	return chain;
 }
 
-fn Module* find_module_by_identifier(LspSession* session, String current_module_name, String identifier)
-{
+fn Module* find_module_by_identifier(LspSession* session, String current_module_name, String identifier) {
 	String scoped_path = "";
-	if (current_module_name.len > 0) 
-	{
+	if (current_module_name.len > 0) {
 		scoped_path = string::tformat("%s::%s", current_module_name, identifier);
 	}
 	String suffix_path = string::tformat("::%s", identifier);
 
-	session.ctx.modules.@each(; mod_name, mod)
-	{
+	session.ctx.modules.@each(; mod_name, mod) {
 		if (mod_name == identifier) return mod;
 		if (scoped_path.len > 0 && mod_name == scoped_path) return mod;
 		if (mod_name.ends_with(suffix_path)) return mod;
@@ -277,22 +231,75 @@ fn Module* find_module_by_identifier(LspSession* session, String current_module_
 	return null;
 }
 
-fn void inject_type_properties(Context* ctx, List{CompletionItem}* items, NodeKind type_kind)
-{
-	items.push({ .label = "alignment", .kind = PROPERTY, .detail = "sz", .documentation = md("Alignment of the type in bytes.") });
-	items.push({ .label = "kind", .kind = PROPERTY, .detail = "TypeKind", .documentation = md("The underlying kind of the type") });
-	items.push({ .label = "name", .kind = PROPERTY, .detail = "String", .documentation = md("The short name of the type.") });
-	items.push({ .label = "qname", .kind = PROPERTY, .detail = "String", .documentation = md("The fully qualified name of the type.") });
-	items.push({ .label = "size", .kind = PROPERTY, .detail = "sz", .documentation = md("Size of the type in bytes.") });
-	items.push({ .label = "typeid", .kind = PROPERTY, .detail = "typeid", .documentation = md("The unique type identifier.") });
-	items.push({ .label = "methods", .kind = PROPERTY, .detail = "any[]", .documentation = md("List of methods attached to this type.") });
+fn void inject_type_properties(Context* ctx, List{CompletionItem}* items, NodeKind type_kind) {
+	items.push(
+		{
+			.label = "alignment",
+			.kind = PROPERTY,
+			.detail = "sz",
+			.documentation = md("Alignment of the type in bytes.")
+		}
+	);
+	items.push(
+		{
+			.label = "kind",
+			.kind = PROPERTY,
+			.detail = "TypeKind",
+			.documentation = md("The underlying kind of the type")
+		}
+	);
+	items.push(
+		{ .label = "name", .kind = PROPERTY, .detail = "String", .documentation = md("The short name of the type.") }
+	);
+	items.push(
+		{
+			.label = "qname",
+			.kind = PROPERTY,
+			.detail = "String",
+			.documentation = md("The fully qualified name of the type.")
+		}
+	);
+	items.push(
+		{ .label = "size", .kind = PROPERTY, .detail = "sz", .documentation = md("Size of the type in bytes.") }
+	);
+	items.push(
+		{ .label = "typeid", .kind = PROPERTY, .detail = "typeid", .documentation = md("The unique type identifier.") }
+	);
+	items.push(
+		{
+			.label = "methods",
+			.kind = PROPERTY,
+			.detail = "any[]",
+			.documentation = md("List of methods attached to this type.")
+		}
+	);
 
-	switch (type_kind)
-	{
+	switch (type_kind) {
 		case STRUCT_DECL:
-			items.push({ .label = "members", .kind = PROPERTY, .detail = "any[]", .documentation = md("Array of fields/members.") });
-			items.push({ .label = "get_tag", .kind = METHOD, .detail = "fn any(String)", .documentation = md("Get attributes/tags.") });
-			items.push({ .label = "has_tag", .kind = METHOD, .detail = "fn bool(String)", .documentation = md("Check if attribute exists.") });
+			items.push(
+				{
+					.label = "members",
+					.kind = PROPERTY,
+					.detail = "any[]",
+					.documentation = md("Array of fields/members.")
+				}
+			);
+			items.push(
+				{
+					.label = "get_tag",
+					.kind = METHOD,
+					.detail = "fn any(String)",
+					.documentation = md("Get attributes/tags.")
+				}
+			);
+			items.push(
+				{
+					.label = "has_tag",
+					.kind = METHOD,
+					.detail = "fn bool(String)",
+					.documentation = md("Check if attribute exists.")
+				}
+			);
 			if (type_kind == STRUCT_DECL) {
 				items.push({ .label = "is_substruct", .kind = PROPERTY, .detail = "bool" });
 				items.push({ .label = "parent", .kind = PROPERTY, .detail = "typeid" });
@@ -300,16 +307,39 @@ fn void inject_type_properties(Context* ctx, List{CompletionItem}* items, NodeKi
 			break;
 
 		case ENUM_DECL:
-			items.push({ .label = "values", .kind = PROPERTY, .detail = "any[]", .documentation = md("List of all enum variants.")});
-			items.push({ .label = "len", .kind = PROPERTY, .detail = "sz", .documentation = md("Number of elements.")});
+			items.push(
+				{
+					.label = "values",
+					.kind = PROPERTY,
+					.detail = "any[]",
+					.documentation = md("List of all enum variants.")
+				}
+			);
+			items.push(
+				{ .label = "len", .kind = PROPERTY, .detail = "sz", .documentation = md("Number of elements.") }
+			);
 			items.push({ .label = "members", .kind = PROPERTY, .detail = "any[]" });
 			items.push({ .label = "from_ordinal", .kind = METHOD, .detail = "fn type(sz)" });
 			items.push({ .label = "lookup_field", .kind = METHOD, .detail = "fn any(String)" });
 			break;
 
 		case FN_DECL:
-			items.push({ .label = "params", .kind = PROPERTY, .detail = "any[]", .documentation = md("Function parameter types.")});
-			items.push({ .label = "returns", .kind = PROPERTY, .detail = "typeid", .documentation = md("Function return type.")});
+			items.push(
+				{
+					.label = "params",
+					.kind = PROPERTY,
+					.detail = "any[]",
+					.documentation = md("Function parameter types.")
+				}
+			);
+			items.push(
+				{
+					.label = "returns",
+					.kind = PROPERTY,
+					.detail = "typeid",
+					.documentation = md("Function return type.")
+				}
+			);
 			break;
 
 		default:
@@ -317,89 +347,85 @@ fn void inject_type_properties(Context* ctx, List{CompletionItem}* items, NodeKi
 	}
 }
 
-fn String format_contract_markdown(ContractDecl* contract, String signature)
-{
+fn String format_contract_markdown(ContractDecl* contract, String signature) {
 	DString md = dstring::temp_with_capacity(512);
 
 	md.appendf("```\n%s\n```\n", signature);
-	
-	if (contract.comment && contract.comment.text.len > 0)
-	{
+
+	if (contract.comment && contract.comment.text.len > 0) {
 		String raw_doc = contract.comment.text;
 		log::info("raw doc: %s", raw_doc);
 		String doc_clean = raw_doc.trim().treplace("\"", "");
 		md.appendf("\n%s\n", doc_clean.trim());
 	}
-	
-	//if (contract.params)
-	//{
-	//	md.append("\n#### Parameters\n");
-	//	foreach (param_node : contract.params)
-	//	{
-	//		Cursor param_cursor = { section, param_node };
-	//		String p_name = param_cursor.spelling(tmem) ?? "";
-	//		String p_desc = param_cursor.source_text() ?? "";
-	//		md.appendf("* **%s** : %s\n", p_name, p_desc);
-	//	}
-	//}
-//
-	//if (contract.requires)
-	//{
-	//	md.append("\n#### Requires (Preconditions)\n");
-	//	foreach (req_expr : contract.requires)
-	//	{
-	//		Cursor param_cursor = { section, req_expr };
-	//		String expr_str = param_cursor.source_text() ?? "";
-	//		md.appendf("* `assert(%s)`\n", expr_str);
-	//	}
-	//}
-//
-	//if (contract.ensures)
-	//{
-	//	md.append("\n#### Ensures (Postconditions)\n");
-	//	foreach (ens_expr : contract.ensures)
-	//	{
-	//		Cursor param_cursor = { section, ens_expr };
-	//		String expr_str = param_cursor.source_text() ?? "";
-	//		md.appendf("* `assert(%s)`\n", expr_str);
-	//	}
-	//}
-//
-	//if (contract.returns || contract.return_desc)
-	//{
-	//	md.append("\n#### Returns\n");
-	//	if (contract.return_desc)
-	//	{
-	//		Cursor cursor = { section, contract.return_desc };
-	//		String desc = cursor.source_text() ?? "";
-	//		md.appendf("* Description: %s\n", desc);
-	//	}
-	//	foreach (ret_node : contract.returns)
-	//	{
-	//		Cursor param_cursor = { section, ret_node };
-	//		String expr_str = param_cursor.source_text() ?? "";
-	//		md.appendf("* %s\n", expr_str);
-	//	}
-	//}
-	//
-	//if (contract.deprecated)
-	//{
-	//	md.append("\n **Deprecated:** ");
-	//	Cursor param_cursor = { section, contract.deprecated };
-	//	String expr_str = param_cursor.source_text() ?? "";
-	//	md.append(expr_str);
-	//	md.append("\n");
-	//}
-		
-	String raw_str = md.str_view();
+
+	// if (contract.params)
+	// {
+	// 	md.append("\n#### Parameters\n");
+	// 	foreach (param_node : contract.params)
+	// 	{
+	// 		Cursor param_cursor = { section, param_node };
+	// 		String p_name = param_cursor.spelling(tmem) ?? "";
+	// 		String p_desc = param_cursor.source_text() ?? "";
+	// 		md.appendf("* **%s** : %s\n", p_name, p_desc);
+	// 	}
+	// }
+	// 
+	// if (contract.requires)
+	// {
+	// 	md.append("\n#### Requires (Preconditions)\n");
+	// 	foreach (req_expr : contract.requires)
+	// 	{
+	// 		Cursor param_cursor = { section, req_expr };
+	// 		String expr_str = param_cursor.source_text() ?? "";
+	// 		md.appendf("* `assert(%s)`\n", expr_str);
+	// 	}
+	// }
+	// 
+	// if (contract.ensures)
+	// {
+	// 	md.append("\n#### Ensures (Postconditions)\n");
+	// 	foreach (ens_expr : contract.ensures)
+	// 	{
+	// 		Cursor param_cursor = { section, ens_expr };
+	// 		String expr_str = param_cursor.source_text() ?? "";
+	// 		md.appendf("* `assert(%s)`\n", expr_str);
+	// 	}
+	// }
+	// 
+	// if (contract.returns || contract.return_desc)
+	// {
+	// 	md.append("\n#### Returns\n");
+	// 	if (contract.return_desc)
+	// 	{
+	// 		Cursor cursor = { section, contract.return_desc };
+	// 		String desc = cursor.source_text() ?? "";
+	// 		md.appendf("* Description: %s\n", desc);
+	// 	}
+	// 	foreach (ret_node : contract.returns)
+	// 	{
+	// 		Cursor param_cursor = { section, ret_node };
+	// 		String expr_str = param_cursor.source_text() ?? "";
+	// 		md.appendf("* %s\n", expr_str);
+	// 	}
+	// }
+	// 
+	// if (contract.deprecated)
+	// {
+	// 	md.append("\n **Deprecated:** ");
+	// 	Cursor param_cursor = { section, contract.deprecated };
+	// 	String expr_str = param_cursor.source_text() ?? "";
+	// 	md.append(expr_str);
+	// 	md.append("\n");
+	// }
+
+	String raw_str     = md.str_view();
 	DString escape_buf = dstring::temp_with_capacity(raw_str.len * 2);
-	
+
 	// Process every single byte sequentially to avoid intermediate allocator overlap
-	for (sz i = 0; i < raw_str.len; i++)
-	{
+	for (sz i = 0; i < raw_str.len; i++) {
 		char c = raw_str[i];
-		switch (c)
-		{
+		switch (c) {
 			case '\\':
 				escape_buf.append("\\\\");
 				break;
@@ -431,8 +457,7 @@ fn String format_contract_markdown(ContractDecl* contract, String signature)
  The analyzer reports line/column now, so ordering comparisons that used
  to be plain integer offset checks need this.
 *>
-fn bool is_before(Location a, Location b)
-{
+fn bool is_before(Location a, Location b) {
 	if (a.line != b.line) return a.line < b.line;
 	return a.column < b.column;
 }

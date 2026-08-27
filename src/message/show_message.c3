@@ -14,56 +14,49 @@ import uri;
 int next_id @local = 1000;
 
 $expand(dessert::@derive(MessageActionItem));
-struct MessageActionItem
-{
-    String title;
+struct MessageActionItem {
+	String title;
 }
 
 $expand(dessert::@derive(ShowMessageRequestParams));
-struct ShowMessageRequestParams
-{
-    MessageType type;
-    String message;
-    Maybe{MessageActionItem[]} actions;
+struct ShowMessageRequestParams {
+	MessageType type;
+	String message;
+	Maybe{MessageActionItem[]} actions;
 }
 
 $expand(dessert::@derive(LspShowMessageRequest));
-struct LspShowMessageRequest
-{
-    String jsonrpc;
-    int id;
-    String method;
-    ShowMessageRequestParams params;
+struct LspShowMessageRequest {
+	String jsonrpc;
+	int id;
+	String method;
+	ShowMessageRequestParams params;
 }
 
-fn int send_request(Allocator allocator, MessageType type, String message, String[] button_titles)
-{
-    int current_id = next_id++;
+fn int send_request(Allocator allocator, MessageType type, String message, String[] button_titles) {
+	int current_id = next_id++;
 
-    MessageActionItem[] actions;
-    if (button_titles.len > 0)
-    {
-        actions = alloc::alloc_array(allocator, MessageActionItem, button_titles.len);
-        for (usz i = 0; i < button_titles.len; i++)
-        {
-            actions[i] = { .title = button_titles[i] };
-        }
-    }
+	MessageActionItem[] actions;
+	if (button_titles.len > 0) {
+		actions = alloc::alloc_array(allocator, MessageActionItem, button_titles.len);
+		for (usz i = 0; i < button_titles.len; i++) {
+			actions[i] = { .title = button_titles[i] };
+		}
+	}
 
-    LspShowMessageRequest req = {
-        .jsonrpc = "2.0",
-        .id = current_id,
-        .method = "window/showMessageRequest",
-        .params = {
-            .type = type,
-            .message = message,
-            .actions = maybe::value(actions),
-        }
-    };
+	LspShowMessageRequest req = {
+		.jsonrpc = "2.0",
+		.id = current_id,
+		.method = "window/showMessageRequest",
+		.params = {
+			.type = type,
+			.message = message,
+			.actions = maybe::value(actions),
+		}
+	};
 
-    String payload = translator::encode(req, allocator);
-    io_handler::write(payload);
+	String payload = translator::encode(req, allocator);
+	io_handler::write(payload);
 
-    return current_id;
+	return current_id;
 }
-

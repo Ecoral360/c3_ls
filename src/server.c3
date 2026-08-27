@@ -20,9 +20,8 @@ String log_path;
 String std_path;
 LspProject project;
 
-fn void start(CliArgs args)
-{
-	log::set_logger(&&(LspLogger){});
+fn void start(CliArgs args) {
+	log::set_logger(&&(LspLogger) { });
 	log_level = args.log_level;
 	log::set_priority_all(VERBOSE);
 
@@ -38,17 +37,15 @@ fn void start(CliArgs args)
 
 	project.init(mem);
 	defer project.free();
-	
+
 	running = true;
 
-	if (!std_path)
-	{
+	if (!std_path) {
 		setup_stdlib_path();
 	}
 
 	defer {
-		if (is_std_path_alloc) 
-		{
+		if (is_std_path_alloc) {
 			std_path.free(mem);
 		}
 	}
@@ -59,43 +56,33 @@ fn void start(CliArgs args)
 	loop();
 }
 
-fn void loop()
-{
-	while (running) @pool()
-	{
+fn void loop() {
+	while (running) @pool() {
 		LspMessage? data = io_handler::read(tmem);
-		if (catch err = data)
-		{
+		if (catch err = data) {
 			log::error("Stream read error encountered: %s", err);
 			continue;
 		}
 
 		dispatch(&data);
 
-		if (is_ready)
-		{
+		if (is_ready) {
 			project.update();
 		}
 	};
 }
 
-fn void dispatch(LspMessage* message)
-{
-	switch (message.method)
-	{
+fn void dispatch(LspMessage* message) {
+	switch (message.method) {
 		case INITIALIZE:
 			initialize::response(tmem, message);
-			if (try value = message.params.initialize.trace.get())
-			{
-				if (value == VERBOSE)
-				{
+			if (try value = message.params.initialize.trace.get()) {
+				if (value == VERBOSE) {
 					log::set_priority_all(VERBOSE);
 				}
 			}
-			if (try value = message.params.initialize.workspace_folders.get())
-			{
-				if (value.len) 
-				{
+			if (try value = message.params.initialize.workspace_folders.get()) {
+				if (value.len) {
 					WorkspaceFolder wf = value[0];
 					config::load(&project, wf, mem);
 				}
@@ -119,6 +106,7 @@ fn void dispatch(LspMessage* message)
 		case DEFINITION:
 			goto_definition::response(tmem, &project, message);
 		case SET_TRACE:
+
 			{
 			}
 		case SHUTDOWN:
@@ -131,11 +119,9 @@ fn void dispatch(LspMessage* message)
 	}
 }
 
-fn void setup_stdlib_path() => @pool()
-{
-	Process? process = process::spawn({"c3c", "--version"});
-	if (catch err = process)
-	{
+fn void setup_stdlib_path() => @pool() {
+	Process? process = process::spawn({ "c3c", "--version" });
+	if (catch err = process) {
 		log::error("failed to get compiler version: %s", err);
 		return;
 	}
@@ -144,21 +130,18 @@ fn void setup_stdlib_path() => @pool()
 	char[BUF_SIZE] stdout_buf;
 	char[BUF_SIZE] stderr_buf;
 
-	if (catch process.join())
-	{
+	if (catch process.join()) {
 		log::error("Failed to join 'c3c_stdlib' process");
 		return;
 	}
 
 	String result;
 
-	if (try long len = process.read_stdout(&stdout_buf, BUF_SIZE)) 
-	{
+	if (try long len = process.read_stdout(&stdout_buf, BUF_SIZE)) {
 		result = (String)stdout_buf[:len];
 	}
 
-	if (try long len = process.read_stderr(&stderr_buf, BUF_SIZE)) 
-	{
+	if (try long len = process.read_stderr(&stderr_buf, BUF_SIZE)) {
 		log::error((String)stderr_buf[:len]);
 	}
 
@@ -166,11 +149,10 @@ fn void setup_stdlib_path() => @pool()
 
 	line = line.split(tmem, "\n")[1];
 	int? index = (int)line.index_of(":");
-	if (catch index) 
-	{
+	if (catch index) {
 		return;
 	}
 	is_std_path_alloc = true;
 	std_path = string::format(mem, "%s/lib", line[index + 1..].trim());
 	log::info("Set std-lib path: %s", std_path);
-} 
+}

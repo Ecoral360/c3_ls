@@ -13,27 +13,23 @@ import dessert;
 import uri;
 
 $expand(dessert::@derive(MessageSeverity));
-constdef MessageSeverity : inline int
-{
-	ERROR = 1,
+constdef MessageSeverity : inline int {
+	ERROR   = 1,
 	WARNING = 2,
-	INFO = 3,
-	HINT = 4,
+	INFO    = 3,
+	HINT    = 4,
 }
 
 $expand(dessert::@derive(LspDiagnostic));
-struct LspDiagnostic 
-{
+struct LspDiagnostic {
 	LspRange range;
 	MessageSeverity severity;
 	String message;
 	String source;
 }
 
-fn MessageSeverity to_severity(DiagnosticLevel level)
-{
-	switch (level)
-	{
+fn MessageSeverity to_severity(DiagnosticLevel level) {
+	switch (level) {
 		case DiagnosticLevel.NOTE:
 			return MessageSeverity.HINT;
 		case DiagnosticLevel.INFO:
@@ -51,29 +47,28 @@ fn MessageSeverity to_severity(DiagnosticLevel level)
  Paths with nothing collected still get an empty array, which is how a
  client is told the file is clean now.
 *>
-fn void publish(Allocator allocator, LspSession* session, String[] touched_paths)
-{
-	foreach (String file_path : touched_paths)
-	{
+fn void publish(Allocator allocator, LspSession* session, String[] touched_paths) {
+	foreach (String file_path : touched_paths) {
 		List{SessionDiagnostic} collected = session.diagnostics_for(file_path);
 
 		List{LspDiagnostic} diags;
 		diags.tinit();
 
-		foreach (SessionDiagnostic diag : collected)
-		{
-			diags.push({
-				.range = {
-					.start = { .line = (uint)diag.range.start.line, .character = (uint)diag.range.start.column },
-					.end = { .line = (uint)diag.range.end.line, .character = (uint)diag.range.end.column },
-				},
-				.severity = to_severity(diag.level),
-				.message = diag.message,
-				.source = "c3-analyzer"
-			});
+		foreach (SessionDiagnostic diag : collected) {
+			diags.push(
+				{
+					.range = {
+						.start = { .line = (uint)diag.range.start.line, .character = (uint)diag.range.start.column },
+						.end = { .line = (uint)diag.range.end.line, .character = (uint)diag.range.end.column },
+					},
+					.severity = to_severity(diag.level),
+					.message = diag.message,
+					.source = "c3-analyzer"
+				}
+			);
 		}
 
-		Uri file_uri = uri::from_file_path(tmem, file_path);
+		Uri file_uri              = uri::from_file_path(tmem, file_path);
 		DocumentUri formatted_uri = (DocumentUri)file_uri.to_raw_string(tmem);
 
 		LspMessage res = {

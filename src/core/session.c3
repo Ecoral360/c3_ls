@@ -25,8 +25,7 @@ const sz ARENA_PAGE_SIZE = 64 * 1024;
  through a single global callback. We collect them here, keyed by file
  path, so the publish handler can drain them per file.
 *>
-struct SessionDiagnostic
-{
+struct SessionDiagnostic {
 	Range range;
 	DiagnosticLevel level;
 	String message;
@@ -39,8 +38,7 @@ struct SessionDiagnostic
  version does not have. The registry only indexes by fully qualified
  name, which is not enough for "find this bare identifier" queries.
 *>
-struct SymbolRef
-{
+struct SymbolRef {
 	Node* node;
 	String module_name;
 	FileEntry* owner;
@@ -52,8 +50,7 @@ struct SymbolRef
  Each file owns an arena holding its text, tokens, AST and sema scopes,
  so re-parsing a single file is a reset of that arena and nothing else.
 *>
-struct FileEntry
-{
+struct FileEntry {
 	String path;
 	DynamicArenaAllocator arena;
 	SourceFile* sf;
@@ -68,8 +65,7 @@ struct FileEntry
  Owns the AnalyzerContext plus the per-file state, symbol index and
  diagnostics that the analyzer stopped tracking.
 *>
-struct LspSession
-{
+struct LspSession {
 	AnalyzerContext* ctx;
 	Allocator allocator;
 
@@ -91,8 +87,7 @@ LspSession* active_session @local;
 <*
  @param [&inout] self
 *>
-fn void LspSession.init(&self, Allocator allocator)
-{
+fn void LspSession.init(&self, Allocator allocator) {
 	self.allocator = allocator;
 	self.ctx = context::create(allocator);
 
@@ -113,16 +108,13 @@ fn void LspSession.init(&self, Allocator allocator)
 <*
  @param [&inout] self
 *>
-fn void LspSession.free(&self)
-{
-	if (active_session == self)
-	{
+fn void LspSession.free(&self) {
+	if (active_session == self) {
 		active_session = null;
 		diagnostics::callback = null;
 	}
 
-	self.entries.@each(; String path, FileEntry* entry)
-	{
+	self.entries.@each(; String path, FileEntry* entry) {
 		entry.arena.free();
 		entry.path.free(self.allocator);
 		alloc::free(self.allocator, entry);
@@ -140,15 +132,14 @@ fn void LspSession.free(&self)
 	context::free(self.ctx);
 }
 
-fn void on_diagnostic(SourceFile* file, Range range, DiagnosticLevel level, String message) @local
-{
+fn void on_diagnostic(SourceFile* file, Range range, DiagnosticLevel level, String message) @local {
 	LspSession* self = active_session;
 	if (!self || !file) return;
 
 	// The message was formatted with whichever arena was active during
 	// parse/sema, so it has to be copied somewhere with its own lifetime.
 	Allocator alloc = &self.diag_arena;
-	String path = file.path.copy(alloc);
+	String path     = file.path.copy(alloc);
 
 	SessionDiagnostic diag = {
 		.range = range,
@@ -156,8 +147,7 @@ fn void on_diagnostic(SourceFile* file, Range range, DiagnosticLevel level, Stri
 		.message = message.copy(alloc),
 	};
 
-	if (try List{SessionDiagnostic}* existing = self.diags.get_ref(path))
-	{
+	if (try List{SessionDiagnostic}* existing = self.diags.get_ref(path)) {
 		existing.push(diag);
 		return;
 	}
@@ -174,15 +164,13 @@ fn void on_diagnostic(SourceFile* file, Range range, DiagnosticLevel level, Stri
 
  @param [&inout] self
 *>
-fn void LspSession.clear_diagnostics(&self)
-{
+fn void LspSession.clear_diagnostics(&self) {
 	self.diags.clear();
 	self.diag_arena.reset();
 }
 
-fn List{SessionDiagnostic} LspSession.diagnostics_for(&self, String path)
-{
-	return self.diags.get(path) ?? (List{SessionDiagnostic}){};
+fn List{SessionDiagnostic} LspSession.diagnostics_for(&self, String path) {
+	return self.diags.get(path) ?? (List{SessionDiagnostic}) { };
 }
 
 <*
@@ -196,19 +184,15 @@ fn List{SessionDiagnostic} LspSession.diagnostics_for(&self, String path)
 
  @param [&inout] self
 *>
-fn void LspSession.set_file(&self, String path, String text)
-{
+fn void LspSession.set_file(&self, String path, String text) {
 	FileEntry* entry = self.entries.get(path) ?? null;
 
-	if (entry)
-	{
+	if (entry) {
 		// Both the SourceFile and everything it points at live in the
 		// arena we are about to reset.
 		(void)self.ctx.files.remove(path);
 		entry.arena.reset();
-	}
-	else
-	{
+	} else {
 		entry = alloc::new(self.allocator, FileEntry);
 		entry.path = path.copy(self.allocator);
 		entry.arena.init(self.allocator, ARENA_PAGE_SIZE);
@@ -219,7 +203,7 @@ fn void LspSession.set_file(&self, String path, String text)
 	entry.root_scope = null;
 
 	Allocator file_alloc = &entry.arena;
-	Allocator saved = self.ctx.allocator;
+	Allocator saved      = self.ctx.allocator;
 	self.ctx.allocator = file_alloc;
 
 	entry.text = text.copy(file_alloc);
@@ -245,8 +229,7 @@ fn void LspSession.set_file(&self, String path, String text)
 <*
  @param [&inout] self
 *>
-fn void LspSession.remove_file(&self, String path)
-{
+fn void LspSession.remove_file(&self, String path) {
 	FileEntry* entry = self.entries.get(path) ?? null;
 	if (!entry) return;
 
@@ -271,8 +254,7 @@ fn void LspSession.remove_file(&self, String path)
 
  @param [&inout] self
 *>
-fn void LspSession.rebuild_index(&self)
-{
+fn void LspSession.rebuild_index(&self) {
 	// Module structs and their lists live in the index arena, so the
 	// reset below reclaims them; the maps themselves are session owned.
 	self.ctx.modules.clear();
@@ -282,7 +264,7 @@ fn void LspSession.rebuild_index(&self)
 	self.index_arena.reset();
 
 	Allocator index_alloc = &self.index_arena;
-	Allocator saved = self.ctx.allocator;
+	Allocator saved       = self.ctx.allocator;
 	self.ctx.allocator = index_alloc;
 
 	// Both of these index into the arena we just reset, and both are
@@ -291,12 +273,9 @@ fn void LspSession.rebuild_index(&self)
 	self.ctx.registry = registry::create(index_alloc);
 	self.ctx.lookup = lookup::create(self.ctx, index_alloc);
 
-	self.entries.@each(; String path, FileEntry* entry)
-	{
-		if (entry.sf)
-		{
-			foreach (Node* node : entry.sf.ast.statements)
-			{
+	self.entries.@each(; String path, FileEntry* entry) {
+		if (entry.sf) {
+			foreach (Node* node : entry.sf.ast.statements) {
 				if (!node) continue;
 				self.node_owner.set((ulong)node.id, entry);
 			}
@@ -308,14 +287,11 @@ fn void LspSession.rebuild_index(&self)
 
 	self.ctx.allocator = saved;
 
-	self.ctx.modules.@each(; String mod_name, Module* module_ptr)
-	{
-		foreach (Node* node : module_ptr.nodes)
-		{
+	self.ctx.modules.@each(; String mod_name, Module* module_ptr) {
+		foreach (Node* node : module_ptr.nodes) {
 			if (!node) continue;
 
-			switch (node.kind)
-			{
+			switch (node.kind) {
 				case MODULE_DECL:
 				case IMPORT_DECL:
 				case CONTRACT_DECL:
@@ -343,12 +319,10 @@ fn void LspSession.rebuild_index(&self)
  @param [&inout] self
  @param [&inout] table
 *>
-fn void LspSession.push_symbol(&self, HashMap{String, List{SymbolRef}}* table, String key, SymbolRef ref)
-{
+fn void LspSession.push_symbol(&self, HashMap{String, List{SymbolRef}}* table, String key, SymbolRef ref) {
 	Allocator index_alloc = &self.index_arena;
 
-	if (try List{SymbolRef}* existing = table.get_ref(key))
-	{
+	if (try List{SymbolRef}* existing = table.get_ref(key)) {
 		existing.push(ref);
 		return;
 	}
@@ -359,8 +333,7 @@ fn void LspSession.push_symbol(&self, HashMap{String, List{SymbolRef}}* table, S
 	table.set(key.copy(index_alloc), fresh);
 }
 
-fn String qualified_name(String module_name, String name)
-{
+fn String qualified_name(String module_name, String name) {
 	return string::tformat("%s::%s", module_name, name);
 }
 
@@ -373,8 +346,7 @@ fn String qualified_name(String module_name, String name)
 
  @param [&inout] self
 *>
-fn void LspSession.analyze(&self, String path)
-{
+fn void LspSession.analyze(&self, String path) {
 	FileEntry* entry = self.entries.get(path) ?? null;
 	if (!entry || !entry.sf) return;
 
@@ -388,13 +360,11 @@ fn void LspSession.analyze(&self, String path)
 	self.ctx.allocator = saved;
 }
 
-fn FileEntry* LspSession.entry(&self, String path)
-{
+fn FileEntry* LspSession.entry(&self, String path) {
 	return self.entries.get(path) ?? null;
 }
 
-fn FileEntry* LspSession.entry_for_node(&self, Node* node)
-{
+fn FileEntry* LspSession.entry_for_node(&self, Node* node) {
 	if (!node) return null;
 	return self.node_owner.get((ulong)node.id) ?? null;
 }
@@ -402,30 +372,26 @@ fn FileEntry* LspSession.entry_for_node(&self, Node* node)
 <*
  Replaces the analyzer's removed `Workspace.find_symbol_by_name`.
 *>
-fn List{SymbolRef} LspSession.find_symbols(&self, String name)
-{
-	return self.by_name.get(name) ?? (List{SymbolRef}){};
+fn List{SymbolRef} LspSession.find_symbols(&self, String name) {
+	return self.by_name.get(name) ?? (List{SymbolRef}) { };
 }
 
 <*
  Replaces the analyzer's removed `Workspace.lookup_in_module`.
 *>
-fn List{SymbolRef} LspSession.find_in_module(&self, String module_name, String name)
-{
-	return self.by_module.get(qualified_name(module_name, name)) ?? (List{SymbolRef}){};
+fn List{SymbolRef} LspSession.find_in_module(&self, String module_name, String name) {
+	return self.by_module.get(qualified_name(module_name, name)) ?? (List{SymbolRef}) { };
 }
 
 <*
  Module owning `node`, or null. Top level nodes are stored per module, so
  this is a linear scan over the module table.
 *>
-fn Module* LspSession.module_of(&self, Node* node)
-{
+fn Module* LspSession.module_of(&self, Node* node) {
 	if (!node) return null;
 
 	Module* found;
-	self.ctx.modules.@each(; String name, Module* module_ptr)
-	{
+	self.ctx.modules.@each(; String name, Module* module_ptr) {
 		if (!found && module_ptr.node_map.has_key(node.id)) found = module_ptr;
 	};
 
@@ -436,13 +402,11 @@ fn Module* LspSession.module_of(&self, Node* node)
  First module declared in `path`, which is the one completion and global
  symbol filtering treat as "the current module".
 *>
-fn Module* LspSession.module_for_file(&self, String path)
-{
+fn Module* LspSession.module_for_file(&self, String path) {
 	FileEntry* entry = self.entry(path);
 	if (!entry || !entry.sf) return null;
 
-	foreach (Node* node : entry.sf.ast.statements)
-	{
+	foreach (Node* node : entry.sf.ast.statements) {
 		if (!node || node.kind != MODULE_DECL) continue;
 		return self.module_of(node);
 	}
@@ -456,8 +420,7 @@ fn Module* LspSession.module_for_file(&self, String path)
  The analyzer's `cursor::source_text` is commented out upstream, so this
  reimplements it over the file's line index.
 *>
-fn String LspSession.node_source_text(&self, Node* node)
-{
+fn String LspSession.node_source_text(&self, Node* node) {
 	FileEntry* entry = self.entry_for_node(node);
 	if (!entry || !node) return "";
 	return entry.lines.slice(node.range);
@@ -468,14 +431,12 @@ fn String LspSession.node_source_text(&self, Node* node)
 
  Reimplements the analyzer's commented out `cursor::signature_text`.
 *>
-fn String LspSession.node_signature_text(&self, Node* node)
-{
+fn String LspSession.node_signature_text(&self, Node* node) {
 	FileEntry* entry = self.entry_for_node(node);
 	if (!entry || !node) return "";
 
 	Node* body;
-	switch (node.kind)
-	{
+	switch (node.kind) {
 		case FN_DECL:
 			body = node.as(FnDecl).body;
 		case MACRO_DECL:
@@ -484,18 +445,12 @@ fn String LspSession.node_signature_text(&self, Node* node)
 			body = null;
 	}
 
-	if (!body)
-	{
+	if (!body) {
 		return entry.lines.slice(node.range).trim();
 	}
 
 	Range signature = { .start = node.range.start, .end = body.range.start };
-	return entry.lines
-		.slice(signature)
-		.trim()
-		.strip_suffix("{")
-		.strip_suffix("=>")
-		.trim();
+	return entry.lines.slice(signature).trim().strip_suffix("{").strip_suffix("=>").trim();
 }
 
 <*
@@ -504,13 +459,11 @@ fn String LspSession.node_signature_text(&self, Node* node)
  Replaces the analyzer's removed `sema::find_deepest_scope`, which took a
  byte offset; scopes now carry line/column ranges.
 *>
-fn Scope* find_deepest_scope(Scope* root, Location loc)
-{
+fn Scope* find_deepest_scope(Scope* root, Location loc) {
 	if (!root) return null;
 
 	Scope* best = root;
-	foreach (Scope* child : root.children)
-	{
+	foreach (Scope* child : root.children) {
 		if (!child) continue;
 		if (!child.range.contains(loc)) continue;
 
@@ -529,8 +482,7 @@ fn Scope* find_deepest_scope(Scope* root, Location loc)
  means the `@local` visibility attribute, so a function body variable is
  still reported as VAR_GLOBAL.
 *>
-struct VisibleVar
-{
+struct VisibleVar {
 	VariableInfo* info;
 	bool is_local;
 }
@@ -540,17 +492,14 @@ struct VisibleVar
 
  Replaces the analyzer's removed `sema::collect_visible_symbols`.
 *>
-fn List{VisibleVar} collect_visible(Allocator allocator, Scope* leaf)
-{
+fn List{VisibleVar} collect_visible(Allocator allocator, Scope* leaf) {
 	List{VisibleVar} result;
 	result.init(allocator, 16);
 
-	for (Scope* current = leaf; current != null; current = current.parent)
-	{
+	for (Scope* current = leaf; current != null; current = current.parent) {
 		bool nested = current.parent != null;
 
-		current.variables.@each(; String name, VariableInfo* info)
-		{
+		current.variables.@each(; String name, VariableInfo* info) {
 			if (info) result.push({ .info = info, .is_local = nested });
 		};
 	}
@@ -565,12 +514,10 @@ fn List{VisibleVar} collect_visible(Allocator allocator, Scope* leaf)
  `Workspace.find_top_level_statement_at_location`. `cursor::find_at`
  cannot stand in for it: that one recurses to the innermost node.
 *>
-fn Node* top_level_at(SourceFile* sf, Location loc)
-{
+fn Node* top_level_at(SourceFile* sf, Location loc) {
 	if (!sf) return null;
 
-	foreach (Node* node : sf.ast.statements)
-	{
+	foreach (Node* node : sf.ast.statements) {
 		if (!node) continue;
 		if (node.range.contains(loc)) return node;
 	}
@@ -584,12 +531,10 @@ fn Node* top_level_at(SourceFile* sf, Location loc)
  Replaces the analyzer's removed `Lexer.find_token_at`. The session keeps
  each file's lexer alive, so its token list is still there to scan.
 *>
-fn bool token_at(SourceFile* sf, Location loc, Token* out_token)
-{
+fn bool token_at(SourceFile* sf, Location loc, Token* out_token) {
 	if (!sf || !sf.lexer) return false;
 
-	foreach (Token t : sf.lexer.tokens)
-	{
+	foreach (Token t : sf.lexer.tokens) {
 		if (t.kind == EOF) break;
 		if (!t.range.contains(loc)) continue;
 

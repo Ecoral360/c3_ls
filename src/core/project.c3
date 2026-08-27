@@ -16,28 +16,24 @@ import uri;
 import lsp::utils;
 import lsp::server;
 
-struct LspFile
-{
+struct LspFile {
 	Uri uri;
 	String text;
 	int version;
 }
 
-fn void LspFile.free(&self)
-{
+fn void LspFile.free(&self) {
 	mem::free(self.text);
 	self.uri.free();
 }
 
-struct QueuedFile
-{
+struct QueuedFile {
 	String path;
 	String text;
 	bool from_disk;
 }
 
-struct LspProject
-{
+struct LspProject {
 	HashMap{String, LspFile*} files;
 	List{QueuedFile} process_queue;
 	LspSession session;
@@ -46,59 +42,52 @@ struct LspProject
 	Allocator allocator;
 }
 
-fn void LspProject.init(&self, Allocator allocator)
-{
+fn void LspProject.init(&self, Allocator allocator) {
 	self.allocator = allocator;
 	self.files.init(allocator);
 	self.process_queue.init(allocator);
 	self.session.init(allocator);
 }
 
-fn void LspProject.free(&self)
-{
+fn void LspProject.free(&self) {
 	self.session.free();
-	self.files.@each(; String uri, LspFile* file)
-	{
+	self.files.@each(; String uri, LspFile* file) {
 		file.free();
 		alloc::free(self.allocator, file);
 	};
 	self.files.free();
 	self.process_queue.free();
 	self.config.free(self.allocator);
-	self.manifests.@each(; name, conf)
-	{
+	self.manifests.@each(; name, conf) {
 		conf.free(self.allocator);
 	};
 	self.manifests.free();
 }
 
-fn void LspProject.open_file(&self, TextDocumentItem document, bool is_std_lib = false)
-{
+fn void LspProject.open_file(&self, TextDocumentItem document, bool is_std_lib = false) {
 	String raw_uri = document.uri;
 
 	log::debug("Registering document stream via raw tracking token: %s", raw_uri);
 
 
 	Uri? file_uri = uri::parse(self.allocator, raw_uri);
-	if (catch err = file_uri) 
-	{
+	if (catch err = file_uri) {
 		log::error("Malformed URI received (%s)", raw_uri);
 		return;
-	};
+	}
 
 	String lookup_key = file_uri.path;
 	log::warn("Opening file: %s", lookup_key);
 
-	if (self.files.has_key(lookup_key))
-	{
+	if (self.files.has_key(lookup_key)) {
 		log::warn("File %s is already tracking in workspace", lookup_key);
 		file_uri.free();
 		return;
 	}
-	
+
 	LspFile* lsp_file = alloc::new(self.allocator, LspFile);
-	*lsp_file = { 
-		.uri = file_uri, 
+	*lsp_file = {
+		.uri = file_uri,
 		.text = document.text.copy(self.allocator),
 		.version = 1,
 	};
@@ -114,22 +103,19 @@ fn void LspProject.open_file(&self, TextDocumentItem document, bool is_std_lib =
 	self.process_queue.push(queued);
 }
 
-fn void LspProject.change_file(&self, DidChangeParams params)
-{
+fn void LspProject.change_file(&self, DidChangeParams params) {
 	String raw_uri = params.document.uri;
 	log::debug("Registering document stream via raw tracking token: %s", raw_uri);
 
 	Uri? file_uri = uri::parse(tmem, raw_uri);
-	if (catch err = file_uri) 
-	{
+	if (catch err = file_uri) {
 		log::error("Malformed URI received (%s)", raw_uri);
 		return;
-	};
+	}
 
 	String lookup_key = file_uri.path;
 
-	if (!self.files.has_key(lookup_key))
-	{
+	if (!self.files.has_key(lookup_key)) {
 		log::warn("File %s is not already tracking in workspace", lookup_key);
 		return;
 	}
@@ -141,20 +127,20 @@ fn void LspProject.change_file(&self, DidChangeParams params)
 	file.version = params.document.version;
 	log::info("Reindexing: version = %d", file.version);
 
-	if (file.text)
-	{
-		mem::free(file.text); 
+	if (file.text) {
+		mem::free(file.text);
 	}
 	file.text = params.content_changes[0].text.copy(self.allocator);
-	self.process_queue.push({
-		.path = lookup_key,
-		.text = file.text,
-		.from_disk = false,
-	});
+	self.process_queue.push(
+		{
+			.path = lookup_key,
+			.text = file.text,
+			.from_disk = false,
+		}
+	);
 }
 
-fn void LspProject.close_file(&self, DocumentUri document)
-{
+fn void LspProject.close_file(&self, DocumentUri document) {
 	String raw_uri = document;
 	Uri? query_uri = uri::parse(tmem, raw_uri);
 	if (catch query_uri) return;
@@ -163,8 +149,7 @@ fn void LspProject.close_file(&self, DocumentUri document)
 
 	log::debug("Deregistering file: %s", lookup_key);
 
-	if (!self.files.has_key(lookup_key))
-	{
+	if (!self.files.has_key(lookup_key)) {
 		log::error("Attempted to drop non-existent file path identifier (%s)", lookup_key);
 		return;
 	}
@@ -178,8 +163,7 @@ fn void LspProject.close_file(&self, DocumentUri document)
 	self.session.remove_file(lookup_key);
 }
 
-fn void LspProject.update(&self) => @pool()
-{
+fn void LspProject.update(&self) => @pool() {
 	if (self.process_queue.is_empty()) return;
 
 	QueuedFile[] files = self.process_queue.array_view();
@@ -190,15 +174,12 @@ fn void LspProject.update(&self) => @pool()
 	List{String} touched;
 	touched.tinit();
 
-	foreach (QueuedFile queued : files)
-	{
+	foreach (QueuedFile queued : files) {
 		String text = queued.text;
 
-		if (queued.from_disk)
-		{
+		if (queued.from_disk) {
 			String? loaded = (String)file::load(tmem, queued.path);
-			if (catch err = loaded)
-			{
+			if (catch err = loaded) {
 				log::error("Failed to load %s (Error: %s)", queued.path, err);
 				continue;
 			}
@@ -213,105 +194,92 @@ fn void LspProject.update(&self) => @pool()
 
 	self.session.rebuild_index();
 
-	foreach (String path : touched)
-	{
+	foreach (String path : touched) {
 		self.session.analyze(path);
 	}
 
 	publish_diag::publish(self.allocator, &self.session, touched.array_view());
 }
 
-fn void LspProject.initial_process(&self)
-{
+fn void LspProject.initial_process(&self) {
 	self.process_stdlib();
 	self.process_config();
 	self.process_libs();
 }
 
-fn void LspProject.process_stdlib(&self)
-{
+fn void LspProject.process_stdlib(&self) {
 	Path? base_path = path::tnew(server::std_path);
-	if (catch err = base_path)
-	{
+	if (catch err = base_path) {
 		log::error("Invalid stdlib path %s", err);
 		return;
 	}
 	String[] paths = utils::find_source_files(tmem, base_path);
-	foreach (matched : paths)
-	{
-		Uri file_uri = uri::from_file_path(tmem, matched);
+	foreach (matched : paths) {
+		Uri file_uri    = uri::from_file_path(tmem, matched);
 		DocumentUri uri = (DocumentUri)file_uri.to_raw_string(tmem);
 		self.open_file({ .uri = uri }, true);
 	}
 }
 
-fn void LspProject.process_config(&self)
-{
+fn void LspProject.process_config(&self) {
 	Path? base_path = path::tnew(self.config.root_path);
-	if (catch err = base_path)
-	{
+	if (catch err = base_path) {
 		log::error("Config base path is not valid.");
 		return;
 	}
 
 	// log::info("base_path: %s", base_path);
 
-	foreach (source_entry : self.config.sources)
-	{
+	foreach (source_entry : self.config.sources) {
 		String entry_str = source_entry;
-		bool recursive = false;
-		String mask = "*.c3";
+		bool recursive   = false;
+		String mask      = "*.c3";
 
-		if (entry_str.ends_with("/**"))
-		{
+		if (entry_str.ends_with("/**")) {
 			entry_str = entry_str.strip_suffix("/**");
 			recursive = true;
 		}
 
 		Path? entry_path = base_path.tappend(entry_str);
-		if (catch err = entry_path)
-		{
+		if (catch err = entry_path) {
 			log::error("'%s' is not a valid directory layout: %s", entry_str, err);
 			continue;
 		}
 
 		// log::info("Entry: %s", entry_path);
-		
+
 		PathList paths;
-		if (catch err = @try(paths, path::ls(tmem, entry_path, no_dirs: true, mask: mask, recursive: recursive, rebase: entry_path)))
-		{
+		if (catch err = @try(
+			paths,
+			path::ls(tmem, entry_path, no_dirs: true, mask: mask, recursive: recursive, rebase: entry_path)
+		)) {
 			log::error("Failed to list directory contents for: %s", entry_str);
 			continue;
 		}
 
-		foreach (matched : paths)
-		{
+		foreach (matched : paths) {
 			log::info("Found path: %s", matched);
-			Uri file_uri = uri::from_file_path(tmem, matched);
+			Uri file_uri    = uri::from_file_path(tmem, matched);
 			DocumentUri uri = (DocumentUri)file_uri.to_raw_string(tmem);
 			self.open_file({ .uri = uri }, true);
 		}
 	}
 }
 
-fn void LspProject.process_libs(&self)
-{
+fn void LspProject.process_libs(&self) {
 	Path? base_path = path::tnew(self.config.root_path);
-	if (catch err = base_path)
-	{
+	if (catch err = base_path) {
 		log::error("Config base path is not valid for parsing libraries.");
 		return;
 	}
 
-	String[] deps = self.config.dependencies.get() ?? {};
-	foreach (dep_name : deps)
-	{
+	String[] deps = self.config.dependencies.get() ?? { };
+	foreach (dep_name : deps) {
 		String lib_target_name = string::tformat("%s.c3l", dep_name);
-		bool lib_found = false;
+		bool lib_found         = false;
 
-		String[] search_paths = self.config.dependency_search_paths.get() ?? {};
-		foreach (search_entry : search_paths)
-		{
+		String[] search_paths = self.config.dependency_search_paths.get() ?? { };
+		foreach (search_entry : search_paths) {
 			Path? search_base = base_path.tappend(search_entry);
 			if (catch search_base) continue;
 
@@ -321,67 +289,51 @@ fn void LspProject.process_libs(&self)
 			if (!path::exists(lib_path)) continue;
 
 			lib_found = true;
-			Path scan_target = lib_path; 
+			Path scan_target   = lib_path;
 			bool is_compressed = path::is_file(lib_path);
 
-			if (is_compressed)
-			{
-				if (lib_path.has_extension("c3i"))
-				{
+			if (is_compressed) {
+				if (lib_path.has_extension("c3i")) {
 					log::debug("Found a declaration file (.c3i) at: %s", lib_path);
-					
-				}	
-				else
-				{
+				} else {
 					log::debug("Found a compressed library archive (.c3l file) at: %s", lib_path);
-					
+
 					Path? cache_root = cache::get_or_create_cache_dir(self.config.root_path);
 					if (catch cache_root) continue;
 					Path? cache_target_dir = cache_root.tappend(dep_name);
 					if (catch cache_target_dir) continue;
-					if (catch cache::is_library_outdated(dep_name, cache_target_dir, lib_path))
-					{
+					if (catch cache::is_library_outdated(dep_name, cache_target_dir, lib_path)) {
 						log::info("Cache is stale or missing for %s. Extracting...", dep_name);
-						
-						if (path::exists(cache_target_dir))
-						{
+
+						if (path::exists(cache_target_dir)) {
 							(void)path::rmtree(cache_target_dir);
 						}
-						if (catch err = path::mkdir(cache_target_dir, recursive: true))
-						{
+						if (catch err = path::mkdir(cache_target_dir, recursive: true)) {
 							log::error("Failed to create cache_target dir: %s", err);
 							continue;
 						}
-						
-						if (decompress_library(lib_path, cache_target_dir))
-						{
-							if (catch err = cache::update_library_meta(dep_name, cache_root, lib_path))
-							{
+
+						if (decompress_library(lib_path, cache_target_dir)) {
+							if (catch err = cache::update_library_meta(dep_name, cache_root, lib_path)) {
 								log::error("Failed to update meta file: %s", err);
 							}
 						}
-					}
-					else 
-					{
+					} else {
 						log::info("Cache hit for library %s. No offline modifications detected.", dep_name);
 					}
-					
+
 					scan_target = cache_target_dir;
 				}
-			}
-			else
-			{
+			} else {
 				log::info("Found an uncompressed library folder (.c3l folder) at: %s", lib_path);
 			}
 
 
-
 			String[] paths = utils::find_source_files(tmem, lib_path);
 
-			foreach (matched : paths)
-			{
+			foreach (matched : paths) {
 				log::info("Found internal library source: %s", matched);
-				Uri file_uri = uri::from_file_path(tmem, matched);
+				Uri file_uri    = uri::from_file_path(tmem, matched);
 				DocumentUri uri = (DocumentUri)file_uri.to_raw_string(tmem);
 				self.open_file({ .uri = uri }, true);
 			}
@@ -393,27 +345,24 @@ fn void LspProject.process_libs(&self)
 
 <*
  Extracts a zipped library archive to a target cache directory.
- @param source_archive  : `Path to the .c3l / .zip file (e.g., "libs/glfw.c3l")`
- @param cache_target_dir: `Path to the destination directory (e.g., ".lsp-cache/glfw")`
+ @param source_archive : `Path to the .c3l / .zip file (e.g., "libs/glfw.c3l")`
+ @param cache_target_dir : `Path to the destination directory (e.g., ".lsp-cache/glfw")`
 *>
-fn bool decompress_library(String source_archive, Path cache_target_dir)
-{
-    log::info("Extracting archive %s to %s", source_archive, cache_target_dir);
+fn bool decompress_library(String source_archive, Path cache_target_dir) {
+	log::info("Extracting archive %s to %s", source_archive, cache_target_dir);
 
-    ZipArchive? archive = zip::open(tmem, source_archive, "r");
-    if (catch err = archive)
-    {
-        log::error("Failed to open zip archive: %s", source_archive);
-        return false;
-    }
+	ZipArchive? archive = zip::open(tmem, source_archive, "r");
+	if (catch err = archive) {
+		log::error("Failed to open zip archive: %s", source_archive);
+		return false;
+	}
 
-    if (catch err = archive.extract(cache_target_dir))
-    {
-        log::error("Extraction failed for %s", source_archive);
-        (void)archive.close();
-        return false;
-    }
+	if (catch err = archive.extract(cache_target_dir)) {
+		log::error("Extraction failed for %s", source_archive);
+		(void)archive.close();
+		return false;
+	}
 
-    (void)archive.close();
-    return true;
+	(void)archive.close();
+	return true;
 }

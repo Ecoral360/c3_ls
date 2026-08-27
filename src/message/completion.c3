@@ -14,18 +14,16 @@ import dessert;
 import uri;
 
 $expand(dessert::@derive(LspCompletionResponse));
-struct LspCompletionResponse
-{
+struct LspCompletionResponse {
 	String jsonrpc;
 	int id;
 
-	struct result 
-	{
+	struct result {
 		<*
-			This list is not complete. Further typing should result in recomputing
-			this list.
-			Recomputed lists have all their items replaced (not appended) in the
-			incomplete completion sessions.
+		 This list is not complete. Further typing should result in recomputing
+		 this list.
+		 Recomputed lists have all their items replaced (not appended) in the
+		 incomplete completion sessions.
 		*>
 		bool is_incomplete @DField({ .rename = "isIncomplete" });
 
@@ -34,33 +32,30 @@ struct LspCompletionResponse
 }
 
 $expand(dessert::@derive(LspCompletionResolveResponse));
-struct LspCompletionResolveResponse
-{
+struct LspCompletionResolveResponse {
 	String jsonrpc;
 	int id;
 	CompletionItem result;
 }
 
-fn void response(Allocator allocator, LspProject* project, LspMessage* message)
-{
+fn void response(Allocator allocator, LspProject* project, LspMessage* message) {
 	log::info("URI: %s", message.params.completion.text_document.uri);
 	Uri? file_uri = uri::parse(tmem, message.params.completion.text_document.uri);
-	if (catch err = file_uri)
-	{
+	if (catch err = file_uri) {
 		log::error("Failed to parse uri: %s", err);
 		return;
 	}
 	LspPosition pos = message.params.completion.position;
- 
-    CompletionItem[]? items = completion::resolve(project, file_uri, pos);
+
+	CompletionItem[]? items = completion::resolve(project, file_uri, pos);
 
 	LspCompletionResponse res = {
 		.jsonrpc = message.rpc,
 		.id = message.id.get() ?? -1,
 		.result = {
 			.is_incomplete = true,
-			.items = items ?? {},
-		} 
+			.items = items ?? { },
+		}
 	};
 
 	String response_json = translator::encode(res, allocator);
@@ -69,8 +64,7 @@ fn void response(Allocator allocator, LspProject* project, LspMessage* message)
 	io_handler::write(response_json);
 }
 
-fn void resolve_response(Allocator allocator, LspProject* project, LspMessage* message)
-{
+fn void resolve_response(Allocator allocator, LspProject* project, LspMessage* message) {
 	CompletionItemResolveParams payload = message.params.completion_resolve;
 	log::info("Resolving documentation item for: %s", payload.label);
 
@@ -87,7 +81,7 @@ fn void resolve_response(Allocator allocator, LspProject* project, LspMessage* m
 		.id = message.id.get() ?? -1,
 		.result = resolved_item
 	};
-	
+
 	String response_json = translator::encode(res, allocator);
 
 	log::debug("Resolve response content: %s", response_json);

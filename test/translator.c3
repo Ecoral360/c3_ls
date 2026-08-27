@@ -6,8 +6,7 @@ import dessert;
 import derive;
 
 $expand(derive(TranslatorTest::name, dessert));
-struct TranslatorTest
-{
+struct TranslatorTest {
 	String method;
 	int hello;
 	struct this_is {
@@ -19,8 +18,7 @@ struct TranslatorTest
 	}
 }
 
-fn void encode_message()
-{
+fn void encode_message() {
 	TranslatorTest encoded = {
 		.method = "idk",
 		.hello = 21,
@@ -31,16 +29,16 @@ fn void encode_message()
 		}
 	};
 	io::printn(encoded);
-	String expected = "Content-Length: 98\r\n\r\n" +++ `{"method":"idk","hello":21,"this_is":{"working":true,"well":"yes it is","uhh":{"i_guess":314159}}}`;
+	String expected = "Content-Length: 98\r\n\r\n"
+		+++ `{"method":"idk","hello":21,"this_is":{"working":true,"well":"yes it is","uhh":{"i_guess":314159}}}`;
 	io::printn(expected);
 	String actual = translator::encode(encoded, tmem);
 	io::printn(actual);
 	assert(actual == expected);
 }
 
-fn void decode_message()
-{
-	String decoded = "Content-Length: 51\r\n\r\n" +++ `{"jsonrpc":"2.0","method":"initialize","params":{}}`;
+fn void decode_message() {
+	String decoded        = "Content-Length: 51\r\n\r\n" +++ `{"jsonrpc":"2.0","method":"initialize","params":{}}`;
 	IoDecodeResult actual = translator::decode(mem, decoded)!!;
 	defer actual.message.free();
 	io::printn("//");

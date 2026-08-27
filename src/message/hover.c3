@@ -1,5 +1,5 @@
 <*
-	https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_hover
+ https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_hover
 *>
 module lsp::msg_handler::hover;
 import lsp::translator;
@@ -15,60 +15,52 @@ import lsp::io_handler;
 import lsp::analysis;
 import uri;
 
-enum HoverContentKind
-{
-    MARKED_STRING,
-    MARKED_STRING_ARRAY,
-    MARKUP_CONTENT
+enum HoverContentKind {
+	MARKED_STRING,
+	MARKED_STRING_ARRAY,
+	MARKUP_CONTENT
 }
 
-union MarkupContentUnion
-{
+union MarkupContentUnion {
 	MarkedString marked_string;
 	MarkedString[] marked_string_array;
 	MarkupContent markup_content;
 }
 
 $expand(dessert::@derive(LspHoverResponse, serialize));
-struct LspHoverResponse @DStruct({ .rename_all = CAMEL_CASE })
-{	
+struct LspHoverResponse @DStruct({ .rename_all = CAMEL_CASE }) {
 	String jsonrpc;
 	int id;
 
-	struct result 
-	{
+	struct result {
 		HoverContentKind content_kind @DField({ .skip = true });
 		MarkupContentUnion contents @DField({ .tagged = { .by = "content_kind", .inlined = true } });
 		<*
-		An optional range is a range inside a text document
-		that is used to visualize a hover, e.g. by changing the background color.
-	*>
+		 An optional range is a range inside a text document
+		 that is used to visualize a hover, e.g. by changing the background color.
+		*>
 		Maybe{LspRange} range;
 	}
 }
 
 $expand(dessert::@derive(LspServerCapabilities));
-struct LspServerCapabilities @DStruct({ .rename_all = CAMEL_CASE })
-{
+struct LspServerCapabilities @DStruct({ .rename_all = CAMEL_CASE }) {
 	bool dynamic_registration;
 	MarkupKind[] content_format;
 }
 
-fn void response(Allocator allocator, LspProject* project, LspMessage* message)
-{
+fn void response(Allocator allocator, LspProject* project, LspMessage* message) {
 	log::warn("URI: %s", message.params.hover.document.uri);
 	Uri? file_uri = uri::parse(tmem, message.params.hover.document.uri);
-	
-	if (catch err = file_uri)
-	{
+
+	if (catch err = file_uri) {
 		log::error("Failed to parse uri: %s", err);
 		return;
 	}
 	LspPosition pos = message.params.hover.position;
 
 	String? hover = hover::hover(project, file_uri, pos);
-	if (catch err = hover)
-	{
+	if (catch err = hover) {
 		log::error("Failed to hover : %s", err);
 		return;
 	}

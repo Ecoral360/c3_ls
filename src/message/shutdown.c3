@@ -10,20 +10,14 @@ import std::collections::object;
 import dessert;
 
 $expand(dessert::@derive(LspShutdownResponse));
-struct LspShutdownResponse
-{
+struct LspShutdownResponse {
 	String jsonrpc;
 	int id;
 	int* result;
 }
 
-fn void response(Allocator allocator, LspMessage* message) @inline
-{
-	LspShutdownResponse response = {
-		.jsonrpc = message.rpc,
-		.id = message.id.get() ?? -1,
-		.result = null
-	};
+fn void response(Allocator allocator, LspMessage* message) @inline {
+	LspShutdownResponse response = { .jsonrpc = message.rpc, .id = message.id.get() ?? -1, .result = null };
 
 	String response_json = translator::encode(response, allocator);
 	log::info("Confirmed shutdown request. Awaiting exit notification...");

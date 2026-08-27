@@ -11,77 +11,67 @@ import std::collections::list;
 import std::collections::map;
 import std::collections::set;
 
-import uri;						
+import uri;
 import analyzer::lexer;
 
-fn void provide_module_paths(Context* ctx, List{CompletionItem}* items)
-{
+fn void provide_module_paths(Context* ctx, List{CompletionItem}* items) {
 	if (ctx.access != NONE) return;
 	if (ctx.scope != EXECUTION) return;
 	String current_mod = ctx.mod ? ctx.mod.name : "";
 	HashSet{String} added_segments;
-	
-	ctx.session.ctx.modules.@each(; name, mod)
-	{
-		do SCOPE:
-		{
+
+	ctx.session.ctx.modules.@each(; name, mod) {
+		do SCOPE: {
 			if (name == current_mod) break SCOPE;
 
 			String remaining_path = get_remaining_path(name, ctx.base_identifier, ctx.access);
-			if (remaining_path.len == 0 && ctx.access == LspAccessKind.STATIC)
-			{
-				break SCOPE; 
+			if (remaining_path.len == 0 && ctx.access == LspAccessKind.STATIC) {
+				break SCOPE;
 			}
 
 			String next_segment = get_next_segment(remaining_path);
 
-			if (ctx.prefix.len > 0 && !next_segment.starts_with(ctx.prefix))
-			{
+			if (ctx.prefix.len > 0 && !next_segment.starts_with(ctx.prefix)) {
 				break SCOPE;
 			}
 
-			if (added_segments.contains(next_segment))
-			{
+			if (added_segments.contains(next_segment)) {
 				break SCOPE;
 			}
-			
+
 			added_segments.add(next_segment);
 
 			bool is_leaf = (next_segment == remaining_path);
-			
-			items.push({
-				.label = next_segment,
-				.kind = MODULE,
-				.detail = is_leaf ? "Module" : "Namespace",
-				.sort_text = string::tformat("0020_%s", next_segment)
-			});
+
+			items.push(
+				{
+					.label = next_segment,
+					.kind = MODULE,
+					.detail = is_leaf ? "Module" : "Namespace",
+					.sort_text = string::tformat("0020_%s", next_segment)
+				}
+			);
 		};
 	};
 }
 
-fn String get_remaining_path(String name, String base_id, LspAccessKind access)
-{
-	if (access != LspAccessKind.STATIC || base_id.len == 0)
-	{
+fn String get_remaining_path(String name, String base_id, LspAccessKind access) {
+	if (access != LspAccessKind.STATIC || base_id.len == 0) {
 		return name;
 	}
-	
-	String root_marker = string::tformat("%s::", base_id);
+
+	String root_marker   = string::tformat("%s::", base_id);
 	String nested_marker = string::tformat("::%s::", base_id);
 
-	if (name.starts_with(root_marker))
-	{
-		return name[root_marker.len : name.len - root_marker.len];
+	if (name.starts_with(root_marker)) {
+		return name[root_marker.len:name.len - root_marker.len];
 	}
 
-	if (name.len >= nested_marker.len)
-	{
-		for (sz i = 0; i <= name.len - nested_marker.len; i++)
-		{
-			if (name[i : nested_marker.len] == nested_marker)
-			{
+	if (name.len >= nested_marker.len) {
+		for (sz i = 0; i <= name.len - nested_marker.len; i++) {
+			if (name[i:nested_marker.len] == nested_marker) {
 				sz offset = i + nested_marker.len;
-				return name[offset : name.len - offset];
+				return name[offset:name.len - offset];
 			}
 		}
 	}
@@ -89,15 +79,12 @@ fn String get_remaining_path(String name, String base_id, LspAccessKind access)
 	return "";
 }
 
-fn String get_next_segment(String remaining_path)
-{
+fn String get_next_segment(String remaining_path) {
 	if (remaining_path.len < 2) return remaining_path;
 
-	for (sz i = 0; i < remaining_path.len - 1; i++)
-	{
-		if (remaining_path[i : 2] == "::")
-		{
-			return remaining_path[0 : i];
+	for (sz i = 0; i < remaining_path.len - 1; i++) {
+		if (remaining_path[i:2] == "::") {
+			return remaining_path[0:i];
 		}
 	}
 	return remaining_path;

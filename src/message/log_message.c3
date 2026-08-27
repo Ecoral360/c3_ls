@@ -6,15 +6,11 @@ import lsp::io_handler;
 import dessert;
 import derive;
 
-fn void send(String message, MessageType type)
-{
+fn void send(String message, MessageType type) {
 	LspMessage res = {
 		.rpc = "2.0",
 		.method = LOG_MESSAGE,
-		.params.log_message = {
-			.type = (int)type,
-			.message = message
-		}
+		.params.log_message = { .type = (int)type, .message = message }
 	};
 
 	String response_json = translator::encode(res, tmem);
