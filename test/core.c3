@@ -664,3 +664,88 @@ fn void spelling_has_no_answer_for_unnamed_nodes() => @pool() {
 
 	test::eq(cursor::spelling(null, tmem) ?? "<err>", "");
 }
+// ---------------------------------------------------------------------
+// LspProject queueing
+// ---------------------------------------------------------------------
+
+const DocumentUri PROJECT_URI = (DocumentUri)"file:///virtual/queued.c3";
+const String PROJECT_PATH     = "/virtual/queued.c3";
+
+const String PROJECT_V1 = "module queued;\n\nfn int one()\n{\n\treturn 1;\n}\n";
+const String PROJECT_V2 = "module queued;\n\nfn int two()\n{\n\treturn 2;\n}\n";
+
+<*
+ A queued path has to outlive the dispatch that queued it.
+
+ change_file used to queue the path out of a tmem parsed Uri, but
+ server::dispatch is itself @pool, so that memory was released before
+ update drained the queue. The re-parse then landed under a garbage key,
+ leaving the original entry untouched, which is why goto definition and
+ hover kept answering from the version before the edit.
+
+ Pointer identity is the assertion rather than string equality: a
+ dangling path still compares equal until something else reuses the
+ arena, so comparing contents would not catch the regression.
+*>
+fn void project_queues_owned_paths() => @pool() {
+	LspProject project;
+	project.init(mem);
+	defer project.free();
+
+	project.open_file({ .uri = PROJECT_URI, .text = PROJECT_V1, .version = 1 });
+
+	test::eq(project.process_queue.len(), 1);
+	LspFile* file = project.files.get(PROJECT_PATH)!!;
+	test::eq(project.process_queue[0].path.ptr, file.uri.path.ptr);
+
+	project.update();
+
+	project.change_file(
+		{
+			.document = { .uri = PROJECT_URI, .version = 2 },
+			.content_changes = { { .text = PROJECT_V2 } },
+		}
+	);
+
+	test::eq(project.process_queue.len(), 1);
+	test::eq(project.process_queue[0].path.ptr, file.uri.path.ptr);
+}
+
+<*
+ The edit has to replace the file rather than land beside it: one tracked
+ entry, holding the new text, with the old symbol gone and the new one
+ indexed.
+*>
+fn void project_change_file_replaces_the_parse() => @pool() {
+	LspProject project;
+	project.init(mem);
+	defer project.free();
+
+	project.open_file({ .uri = PROJECT_URI, .text = PROJECT_V1, .version = 1 });
+	project.update();
+
+	test::eq(project.session.entries.len(), 1);
+	test::eq(project.session.find_symbols("one").len(), 1);
+	test::@check(project.session.find_symbols("two").is_empty());
+
+	// The queueing happens in its own pool, the way dispatch does it, so a
+	// path pointing at temporary memory would already be released here.
+	@pool() {
+		project.change_file(
+			{
+				.document = { .uri = PROJECT_URI, .version = 2 },
+				.content_changes = { { .text = PROJECT_V2 } },
+			}
+		);
+	};
+
+	project.update();
+
+	test::eq(project.session.entries.len(), 1);
+	test::@check(project.session.find_symbols("one").is_empty(), "the old declaration is still indexed");
+	test::eq(project.session.find_symbols("two").len(), 1);
+
+	FileEntry* entry = project.session.entry(PROJECT_PATH);
+	test::ne(entry, null);
+	test::eq(entry.text, PROJECT_V2);
+}

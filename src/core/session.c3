@@ -289,7 +289,7 @@ fn void LspSession.rebuild_index(&self) {
 
 	self.entries.@each(; String path, FileEntry* entry) {
 		if (entry.sf) {
-			foreach (Node* node : entry.sf.ast.statements) {
+			foreach (Node* node : entry.sf.ast.nodes) {
 				if (!node) continue;
 				self.node_owner.set((ulong)node.id, entry);
 			}

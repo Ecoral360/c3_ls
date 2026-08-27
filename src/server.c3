@@ -73,7 +73,7 @@ fn void loop() {
 	};
 }
 
-fn void dispatch(LspMessage* message) {
+fn void dispatch(LspMessage* message) => @pool() {
 	switch (message.method) {
 		case INITIALIZE:
 			initialize::response(tmem, message);
@@ -104,7 +104,8 @@ fn void dispatch(LspMessage* message) {
 		case DID_CHANGE:
 			project.change_file(message.params.did_change);
 		case DID_CLOSE:
-			project.close_file(message.params.did_close.document.uri);
+			break;
+			// project.close_file(message.params.did_close.document.uri);
 		case COMPLETION:
 			completion::response(tmem, &project, message);
 		case COMPLETION_RESOLVE:

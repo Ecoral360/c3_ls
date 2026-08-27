@@ -106,8 +106,8 @@ fn void LspProject.open_file(&self, TextDocumentItem document, bool is_std_lib =
 fn void LspProject.change_file(&self, DidChangeParams params) {
 	String raw_uri = params.document.uri;
 	log::debug("Registering document stream via raw tracking token: %s", raw_uri);
-
 	Uri? file_uri = uri::parse(tmem, raw_uri);
+
 	if (catch err = file_uri) {
 		log::error("Malformed URI received (%s)", raw_uri);
 		return;
@@ -128,12 +128,18 @@ fn void LspProject.change_file(&self, DidChangeParams params) {
 	log::info("Reindexing: version = %d", file.version);
 
 	if (file.text) {
-		mem::free(file.text);
+		alloc::free(self.allocator, file.text);
 	}
+
 	file.text = params.content_changes[0].text.copy(self.allocator);
+
+	// `lookup_key` points into tmem, which is released when the dispatch
+	// pool closes, and the queue is not drained until after that. Queue the
+	// file's own path instead: it is the same text, owned by the LspFile,
+	// and it stays valid until the file is closed.
 	self.process_queue.push(
 		{
-			.path = lookup_key,
+			.path = file.uri.path,
 			.text = file.text,
 			.from_disk = false,
 		}

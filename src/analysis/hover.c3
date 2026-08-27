@@ -62,7 +62,8 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 	Node* node = cursor::node(&sf.ast, loc).node;
 	if (!node || !node.is_valid()) return "";
 
-	String symbol = goto_definition::extract_symbol_at_cursor(node, loc) ?? "";
+	String symbol = cursor::spelling(node, tmem)!!;
+
 	if (!symbol) {
 		log::error("No valid symbol targeted at this offset context.");
 		return "";
@@ -73,12 +74,13 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 	List{SymbolRef} origins = project.session.find_symbols(symbol);
 
 	List{String} output;
+
 	output.tinit();
 
 	foreach (origin : origins) {
 		ContractDecl* contract = cursor::contract(origin.node)!;
 		if (!contract) continue;
-		output.push(entry.lines.slice(origin.node.range));
+		output.push(origin.owner.lines.slice(origin.node.range));
 	}
 
 	return string::tjoin(output.array_view(), "\n---\n");

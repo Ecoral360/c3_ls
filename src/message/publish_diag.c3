@@ -81,6 +81,10 @@ fn void publish(Allocator allocator, LspSession* session, String[] touched_paths
 		};
 
 		String response_json = translator::encode(res, allocator);
+		// One publish per touched file, and one batch per keystroke, so
+		// holding onto these adds up fast.
+		defer response_json.free(allocator);
+
 		log::debug("Sending diagnostics for %s: %s", file_path, response_json);
 		io_handler::write(response_json);
 	}
