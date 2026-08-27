@@ -11,6 +11,7 @@ import std::thread;
 import std::time;
 import uri;
 import std::os::process;
+import dessert;
 
 bool is_ready;
 bool is_std_path_alloc;
@@ -82,10 +83,17 @@ fn void dispatch(LspMessage* message) {
 				}
 			}
 			if (try value = message.params.initialize.workspace_folders.get()) {
+				log::info("Values: %s", value);
 				if (value.len) {
 					WorkspaceFolder wf = value[0];
 					config::load(&project, wf, mem);
 				}
+			} else if (try uri = message.params.initialize.root_uri.get()) {
+				log::info("Root uri: %s", uri);
+				WorkspaceFolder wf = { uri, "root" };
+				config::load(&project, wf, mem);
+			} else {
+				log::info("%s", json::tstring_serialize(message)!!);
 			}
 		case INITIALIZED:
 			log::info("received Initialized");

@@ -46,6 +46,7 @@ fn void ProjectConfig.free(&self, Allocator allocator) {
 
 $expand(dessert::@derive(ManifestConfig));
 struct ManifestConfig {
+	String provides;
 	String[] sources;
 	HashMap{String, TargetConfig} targets;
 }

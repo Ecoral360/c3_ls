@@ -10,7 +10,7 @@
     "c3_analyzer"
   ],
   "dependency-search-paths": [
-    "lib"
+    "lib/"
   ],
   "langrev": "1",
   "opt": "O0",

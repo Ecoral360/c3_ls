@@ -203,8 +203,8 @@ fn void LspProject.update(&self) => @pool() {
 
 fn void LspProject.initial_process(&self) {
 	self.process_stdlib();
-	self.process_config();
 	self.process_libs();
+	self.process_config();
 }
 
 fn void LspProject.process_stdlib(&self) {
@@ -273,72 +273,82 @@ fn void LspProject.process_libs(&self) {
 		return;
 	}
 
-	String[] deps = self.config.dependencies.get() ?? { };
-	foreach (dep_name : deps) {
-		String lib_target_name = string::tformat("%s.c3l", dep_name);
-		bool lib_found         = false;
+	String[] deps         = self.config.dependencies.get() ?? { };
+	String[] search_paths = self.config.dependency_search_paths.get() ?? { };
 
-		String[] search_paths = self.config.dependency_search_paths.get() ?? { };
-		foreach (search_entry : search_paths) {
-			Path? search_base = base_path.tappend(search_entry);
-			if (catch search_base) continue;
+	foreach (search_entry : search_paths) {
+		if (search_entry.ends_with("\\")) search_entry = search_entry.strip_suffix("\\");
 
-			Path? lib_path = search_base.tappend(lib_target_name);
-			if (catch lib_path) continue;
+		if (!search_entry.ends_with("/")) search_entry = string::tformat("/%s/", search_entry);
 
-			if (!path::exists(lib_path)) continue;
+		Path? search_base = base_path.tappend(search_entry);
+		if (catch search_base) continue;
 
-			lib_found = true;
-			Path scan_target   = lib_path;
-			bool is_compressed = path::is_file(lib_path);
+		String[]? libs = libs_installed(search_base);
+		if (catch libs) continue;
 
-			if (is_compressed) {
-				if (lib_path.has_extension("c3i")) {
-					log::debug("Found a declaration file (.c3i) at: %s", lib_path);
-				} else {
-					log::debug("Found a compressed library archive (.c3l file) at: %s", lib_path);
+		foreach (lib : libs) {
+			ManifestConfig? config = load_manifest(lib);
+			if (catch config) {
+				log::warn("Lib without manifest.json (%s)", lib);
+				continue;
+			}
+			String lib_provides = config.provides;
+			foreach (dep_name : deps) {
+				if (dep_name != lib_provides) continue;
 
-					Path? cache_root = cache::get_or_create_cache_dir(self.config.root_path);
-					if (catch cache_root) continue;
-					Path? cache_target_dir = cache_root.tappend(dep_name);
-					if (catch cache_target_dir) continue;
-					if (catch cache::is_library_outdated(dep_name, cache_target_dir, lib_path)) {
-						log::info("Cache is stale or missing for %s. Extracting...", dep_name);
+				Path lib_path = (Path) lib;
+				Path scan_target   = lib_path;
+				bool is_compressed = path::is_file(lib_path);
 
-						if (path::exists(cache_target_dir)) {
-							(void)path::rmtree(cache_target_dir);
-						}
-						if (catch err = path::mkdir(cache_target_dir, recursive: true)) {
-							log::error("Failed to create cache_target dir: %s", err);
-							continue;
-						}
-
-						if (decompress_library(lib_path, cache_target_dir)) {
-							if (catch err = cache::update_library_meta(dep_name, cache_root, lib_path)) {
-								log::error("Failed to update meta file: %s", err);
-							}
-						}
+				if (is_compressed) {
+					if (lib_path.has_extension("c3i")) {
+						log::debug("Found a declaration file (.c3i) at: %s", lib_path);
 					} else {
-						log::info("Cache hit for library %s. No offline modifications detected.", dep_name);
+						log::debug("Found a compressed library archive (.c3l file) at: %s", lib_path);
+
+						Path? cache_root = cache::get_or_create_cache_dir(self.config.root_path);
+						if (catch cache_root) continue;
+						Path? cache_target_dir = cache_root.tappend(dep_name);
+						if (catch cache_target_dir) continue;
+						if (catch cache::is_library_outdated(dep_name, cache_target_dir, lib_path)) {
+							log::info("Cache is stale or missing for %s. Extracting...", dep_name);
+
+							if (path::exists(cache_target_dir)) {
+								(void)path::rmtree(cache_target_dir);
+							}
+							if (catch err = path::mkdir(cache_target_dir, recursive: true)) {
+								log::error("Failed to create cache_target dir: %s", err);
+								continue;
+							}
+
+							if (decompress_library(lib_path, cache_target_dir)) {
+								if (catch err = cache::update_library_meta(dep_name, cache_root, lib_path)) {
+									log::error("Failed to update meta file: %s", err);
+								}
+							}
+						} else {
+							log::info("Cache hit for library %s. No offline modifications detected.", dep_name);
+						}
+
+						scan_target = cache_target_dir;
 					}
-
-					scan_target = cache_target_dir;
+				} else {
+					log::info("Found an uncompressed library folder (.c3l folder) at: %s", lib_path);
 				}
-			} else {
-				log::info("Found an uncompressed library folder (.c3l folder) at: %s", lib_path);
+
+
+				String[] paths = utils::find_source_files(tmem, lib_path);
+
+				foreach (matched : paths) {
+					log::info("Found internal library source: %s", matched);
+					Uri file_uri    = uri::from_file_path(tmem, matched);
+					DocumentUri uri = (DocumentUri)file_uri.to_raw_string(tmem);
+					self.open_file({ .uri = uri }, true);
+				}
+
+				break;
 			}
-
-
-			String[] paths = utils::find_source_files(tmem, lib_path);
-
-			foreach (matched : paths) {
-				log::info("Found internal library source: %s", matched);
-				Uri file_uri    = uri::from_file_path(tmem, matched);
-				DocumentUri uri = (DocumentUri)file_uri.to_raw_string(tmem);
-				self.open_file({ .uri = uri }, true);
-			}
-
-			break;
 		}
 	}
 }
@@ -365,4 +375,38 @@ fn bool decompress_library(String source_archive, Path cache_target_dir) {
 
 	(void)archive.close();
 	return true;
+}
+
+fn String[]? libs_installed(String dir) @local {
+	if (!file::is_dir(dir)) return { };
+
+	PathList entries = path::ls(tmem, path::tnew(dir)!)!;
+
+	List{String} paths;
+	paths.tinit();
+
+	foreach (entry : entries) {
+		if (!entry.has_extension("c3l")) continue;
+		paths.push(string::tformat("%s/%s", dir, entry));
+	}
+
+	return paths.to_tarray();
+}
+
+<*
+ Reads the manifest of an installed lib. Handles both the directory layout and
+ the zipped `.c3l` archive layout that c3c accepts.
+*>
+fn ManifestConfig? load_manifest(String lib_path) @private {
+	String data;
+
+	if (file::is_dir(lib_path)) {
+		data = (String)file::load_temp(string::tformat("%s/%s", lib_path, config::MANIFEST_CONFIG_NAME))!;
+	} else {
+		ZipArchive archive = zip::open(tmem, lib_path)!;
+		defer (void)archive.close();
+		data = (String)archive.read_file_all(tmem, config::MANIFEST_CONFIG_NAME)!;
+	}
+
+	return json::tdeserialize{ManifestConfig}(data);
 }
