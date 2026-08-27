@@ -3,6 +3,7 @@ module lsp::analysis;
 import analyzer::core;
 import analyzer::cursor;
 import analyzer::lexer;
+import uri;
 
 import lsp::core;
 
@@ -31,7 +32,9 @@ fn String extract_prefix(String text, sz byte_offset) {
 	}
 
 	if (start_idx >= byte_offset) return "";
-	return text[start_idx..byte_offset];
+	// Length based, not an inclusive range: the character at byte_offset is
+	// the one under the cursor, and at end of file it does not exist.
+	return text[start_idx:byte_offset - start_idx];
 }
 
 fn CompletionItemKind completion_kind_from_node(Node* node) {
@@ -44,18 +47,15 @@ fn CompletionItemKind completion_kind_from_node(Node* node) {
 		case INTERFACE_DECL: return INTERFACE;
 		case STRUCT_DECL: return STRUCT;
 		case VAR_DECL:
-
-			{
-				VarDecl* var_decl = node.as(VarDecl);
-				if (var_decl.var_flags.is_const) {
-					return CONSTANT;
-				}
-				switch (var_decl.var_kind) {
-					case VAR_FIELD:
-						return FIELD;
-					default:
-						return VARIABLE;
-				}
+			VarDecl* var_decl = node.as(VarDecl);
+			if (var_decl.var_flags.is_const) {
+				return CONSTANT;
+			}
+			switch (var_decl.var_kind) {
+				case VAR_FIELD:
+					return FIELD;
+				default:
+					return VARIABLE;
 			}
 		default:
 			return TEXT;
@@ -461,3 +461,15 @@ fn bool is_before(Location a, Location b) {
 	if (a.line != b.line) return a.line < b.line;
 	return a.column < b.column;
 }
+
+fn Node* get_node(LspProject* project, Uri uri, LspPosition pos) {
+	Location loc = pos.to_location();
+
+	FileEntry* entry = project.session.entry(uri.path);
+	if (!entry || !entry.sf) {
+		return null;
+	}
+
+	return cursor::node(&entry.sf.ast, loc).node;
+}
+

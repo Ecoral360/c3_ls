@@ -2,6 +2,7 @@ module lsp::analysis::hover;
 
 import analyzer::core;
 import analyzer::cursor;
+import lsp::analysis;
 
 import std::collections::list;
 import std::collections::map;
@@ -11,10 +12,33 @@ import lsp::core;
 import uri;
 import analyzer::lexer;
 
+// fn String contract_param_to_string(ContractParam* param) {
+// 	String name = (param.ident ?: &&(Ident) { }).text;
+// 	String description = (param.description ?: &&(Ident) { }).text;
+// 	InOutModifier modifier = param.modifier;
+//
+// 	String modifier_str = modifier == IN ? "" : string::tformat(`[&%s] `, modifier.description.to_lower_tcopy());
+//
+// 	return string::tformat(`@param %s%s : %s`, modifier_str, name, description);
+// }
+//
+// fn String contract_to_string(ContractDecl* contract) {
+// 	String comment = (contract.comment ?: &&(Ident) { }).text;
+//
+// 	List{String} params;
+// 	params.tinit();
+// 	foreach (param_node : contract.params) {
+// 		ContractParam* param = param_node.as(ContractParam);
+// 		params.push(contract_param_to_string(param));
+// 	}
+//
+// 	return string::tformat("%s\n%s", comment, string::tjoin(params.array_view(), "\n"));
+// }
+
 fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 	log::info("hover");
 
-	Location loc = { .line = (int)pos.line, .column = (int)pos.character };
+	Location loc = pos.to_location();
 
 	log::info("resolve - editor location: %s:%s", loc.line + 1, loc.column + 1);
 
@@ -29,22 +53,37 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 	if (core::token_at(sf, loc, &target_token)) {
 		switch {
 			case target_token.kind.is_keyword():
-
-				{
-					return get_keyword_docs(target_token.kind);
-				}
+				return get_keyword_docs(target_token.kind);
 			case target_token.kind.is_base_type():
-
-				{
-					return get_base_type_docs(target_token.kind);
-				}
+				return get_base_type_docs(target_token.kind);
 		}
 	}
 
-	Node* node = cursor::find_at(sf.ast.statements.array_view(), { loc, loc });
+	Node* node = cursor::node(&sf.ast, loc).node;
 	if (!node || !node.is_valid()) return "";
 
-	return cursor::spelling(node, tmem);
+	String symbol = goto_definition::extract_symbol_at_cursor(node, loc) ?? "";
+	if (!symbol) {
+		log::error("No valid symbol targeted at this offset context.");
+		return "";
+	}
+
+	log::info("symbol: %s", symbol);
+
+	List{SymbolRef} origins = project.session.find_symbols(symbol);
+
+	List{String} output;
+	output.tinit();
+
+	foreach (origin : origins) {
+		ContractDecl* contract = cursor::contract(origin.node)!;
+		if (!contract) continue;
+		output.push(entry.lines.slice(origin.node.range));
+	}
+
+	return string::tjoin(output.array_view(), "\n---\n");
+
+	// return cursor::spelling(node, tmem);
 }
 
 fn String get_keyword_docs(TokenKind kind) {

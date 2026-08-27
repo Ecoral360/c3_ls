@@ -14,7 +14,7 @@ import uri;
 fn LspLocation[]? goto_definition(LspProject* project, Uri uri, LspPosition pos) {
 	log::info("goto definition");
 
-	Location loc = { .line = (int)pos.line, .column = (int)pos.character };
+	Location loc = pos.to_location();
 
 	log::info("resolve - editor location: %s:%s", loc.line + 1, loc.column + 1);
 
@@ -24,7 +24,7 @@ fn LspLocation[]? goto_definition(LspProject* project, Uri uri, LspPosition pos)
 		return { };
 	}
 
-	Node* node = cursor::find_at(entry.sf.ast.statements.array_view(), { loc, loc });
+	Node* node = cursor::node(&entry.sf.ast, loc).node;
 	if (!node || !node.is_valid()) {
 		log::error("Cursor not found!");
 		return { };
@@ -75,39 +75,27 @@ fn String? extract_symbol_at_cursor(Node* node, Location loc) {
 
 	switch (node.kind) {
 		case FN_DECL:
+			FnDecl* fndecl = node.as(FnDecl);
 
-			{
-				FnDecl* fndecl = node.as(FnDecl);
-
-				if (!fndecl.name || !fndecl.name.range.contains(loc)) {
-					log::info("Cursor inside FN_DECL but missed the name token.");
-					return "";
-				}
-				return fndecl.name.text;
+			if (!fndecl.name || !fndecl.name.range.contains(loc)) {
+				log::info("Cursor inside FN_DECL but missed the name token.");
+				return "";
 			}
+			return fndecl.name.text;
 		case STRUCT_DECL:
+			StructDecl* structdecl = node.as(StructDecl);
 
-			{
-				StructDecl* structdecl = node.as(StructDecl);
+			if (!structdecl.name || !structdecl.name.range.contains(loc)) return "";
 
-				if (!structdecl.name || !structdecl.name.range.contains(loc)) return "";
-
-				return structdecl.name.text;
-			}
+			return structdecl.name.text;
 
 		case VAR_DECL:
+			VarDecl* vardecl = node.as(VarDecl);
 
-			{
-				VarDecl* vardecl = node.as(VarDecl);
-
-				if (!vardecl.name || !vardecl.name.range.contains(loc)) return "";
-				return vardecl.name.text;
-			}
+			if (!vardecl.name || !vardecl.name.range.contains(loc)) return "";
+			return vardecl.name.text;
 		case TYPE_EXPR:
-
-			{
-				return cursor::raw_type_identifier(node);
-			}
+			return cursor::raw_type_identifier(node);
 		default:
 			return cursor::spelling(node, tmem);
 	}

@@ -61,7 +61,9 @@ fn void? resolve_item(LspProject* project, CompletionItem* item) {
 	sz split_idx = metadata.index_of_char(';') ?? -1;
 	if (split_idx < 0) return;
 
-	String id_str = metadata[..split_idx];
+	// Exclusive: an inclusive range would keep the ';' and the parse below
+	// would fail, silently dropping the documentation.
+	String id_str = metadata[:split_idx];
 
 	ulong node_id = id_str.to_ulong() ?? 0;
 	if (node_id == 0) return;
@@ -71,18 +73,15 @@ fn void? resolve_item(LspProject* project, CompletionItem* item) {
 
 	switch (node.kind) {
 		case FN_DECL:
+			item.documentation.kind = MARKDOWN;
+			String signature = project.session.node_signature_text(node);
+			if (signature.len == 0) signature = "fn";
 
-			{
-				item.documentation.kind = MARKDOWN;
-				String signature = project.session.node_signature_text(node);
-				if (signature.len == 0) signature = "fn";
-
-				FnDecl* decl = node.as(FnDecl);
-				if (try val = decl.contract.get()) {
-					item.documentation.value = analysis::format_contract_markdown(val.as(ContractDecl), signature);
-				} else {
-					item.documentation.value = signature;
-				}
+			FnDecl* decl = node.as(FnDecl);
+			if (try val = decl.contract.get()) {
+				item.documentation.value = analysis::format_contract_markdown(val.as(ContractDecl), signature);
+			} else {
+				item.documentation.value = signature;
 			}
 		default:
 	}

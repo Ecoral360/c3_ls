@@ -72,7 +72,7 @@ fn void response(Allocator allocator, LspProject* project, LspMessage* message) 
 			.content_kind = MARKUP_CONTENT,
 			.contents = {
 				.markup_content = {
-					.kind = PLAIN_TEXT,
+					.kind = MARKDOWN,
 					.value = hover,
 				},
 			},

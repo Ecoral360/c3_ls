@@ -61,15 +61,9 @@ fn bool provide_member_access(Context* ctx, List{CompletionItem}* items) {
 		// (ident) locals & params -> module path
 		// (type_ident) TypeResolution
 		case STATIC:
-
-			{
-				return provide_static_access(ctx, items);
-			}
+			return provide_static_access(ctx, items);
 		case INSTANCE:
-
-			{
-				return provide_instance_access(ctx, items);
-			}
+			return provide_instance_access(ctx, items);
 
 		default:
 	}

@@ -91,6 +91,15 @@ fn void LspSession.init(&self, Allocator allocator) {
 	self.allocator = allocator;
 	self.ctx = context::create(allocator);
 
+	// context::create builds a registry and a lookup from `allocator`, but
+	// rebuild_index replaces both with index arena copies on the first
+	// update. Drop the originals now so they are not stranded; nothing
+	// between here and that first rebuild reads either one.
+	registry::free(allocator, self.ctx.registry);
+	lookup::free(self.ctx.lookup);
+	self.ctx.registry = null;
+	self.ctx.lookup = null;
+
 	self.entries.init(allocator, 64);
 
 	self.index_arena.init(allocator, ARENA_PAGE_SIZE);
@@ -128,6 +137,11 @@ fn void LspSession.free(&self) {
 
 	self.diags.free();
 	self.diag_arena.free();
+
+	// Whatever rebuild_index last installed came from the index arena that
+	// was just released, so context::free must not try to reclaim it.
+	self.ctx.registry = null;
+	self.ctx.lookup = null;
 
 	context::free(self.ctx);
 }

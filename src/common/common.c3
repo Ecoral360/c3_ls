@@ -3,6 +3,7 @@ module lsp;
 import std::collections::object;
 import std::collections::maybe;
 
+import analyzer::core;
 import dessert;
 
 // https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification
@@ -38,6 +39,10 @@ struct LspPosition {
 	 to the line length.
 	*>
 	uint character;
+}
+
+fn Location LspPosition.to_location(&self) {
+	return { .line = (int)self.line, .column = (int)self.character };
 }
 
 $expand(dessert::@derive(LspRange));
