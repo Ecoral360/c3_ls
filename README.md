@@ -11,8 +11,16 @@ Before compiling, ensure you have the **C3 compiler (`c3c`)** installed and avai
 * Required version: 0.8.2 - pre release
 * Recommended version: 0.8.2 - pre release
 
-### Installation
+## Installation
 
+### Using [`c3po`](https://github.com/Ecoral360/c3po):
+
+```bash
+c3po install Ecoral360/c3_ls
+```
+
+
+### Manually:
 Run the following commands in your terminal:
 
 ```bash
