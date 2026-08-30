@@ -5,7 +5,7 @@ import dessert;
 import std::io;
 import std::time;
 
-const String CACHE_DIR_NAME = ".lsp-cache";
+const String CACHE_DIR_NAME = "build/.lsp-cache";
 
 // const String DEFAULT_PATH = path::
 
