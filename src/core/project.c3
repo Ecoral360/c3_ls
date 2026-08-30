@@ -180,6 +180,13 @@ fn void LspProject.update(&self) => @pool() {
 	List{String} touched;
 	touched.tinit();
 
+	// Unindex the whole batch first. set_file resets a file's arena, and
+	// every Node* the index holds for that file points into it, so taking
+	// the old contribution out has to happen while it is still valid.
+	foreach (QueuedFile queued : files) {
+		self.session.unindex(queued.path);
+	}
+
 	foreach (QueuedFile queued : files) {
 		String text = queued.text;
 
@@ -198,8 +205,11 @@ fn void LspProject.update(&self) => @pool() {
 
 	if (touched.is_empty()) return;
 
-	self.session.rebuild_index();
+	foreach (String path : touched) {
+		self.session.index(path);
+	}
 
+	// After indexing: sema resolves imports against ctx.modules.
 	foreach (String path : touched) {
 		self.session.analyze(path);
 	}

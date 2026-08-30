@@ -372,3 +372,16 @@ fn int member_labels(LspSession* session, String src, String typed) {
 
 	return (int)items.len();
 }
+
+<*
+ Re-index one file the way LspProject.update does: take the old
+ contribution out before set_file resets the arena that holds it.
+
+ @param [&inout] session
+*>
+fn void reindex(LspSession* session, String path, String text) {
+	session.unindex(path);
+	session.set_file(path, text);
+	session.index(path);
+	session.analyze(path);
+}

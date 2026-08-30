@@ -798,3 +798,150 @@ fn void session_top_level_at_accepts_a_cursor_past_the_end() => @pool() {
 	// A blank line still belongs to nothing: the fallback is same line only.
 	test::eq(top_level_at(entry.sf, { .line = 3, .column = 0 }), null);
 }
+// ---------------------------------------------------------------------
+// Incremental indexing
+// ---------------------------------------------------------------------
+
+const String INC_A_PATH = "/virtual/inc_a.c3";
+const String INC_B_PATH = "/virtual/inc_b.c3";
+
+const String INC_A = "module inc;\n\nfn int alpha()\n{\n\treturn 1;\n}\n";
+const String INC_B = "module inc;\n\nfn int beta()\n{\n\treturn 2;\n}\n";
+
+<*
+ Editing one file must not disturb another's symbols, which is the whole
+ point of unindexing per file instead of rebuilding the workspace.
+*>
+fn void incremental_edit_leaves_other_files_alone() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, INC_A_PATH, INC_A);
+	test_support::reindex(&session, INC_B_PATH, INC_B);
+
+	test::eq(session.find_symbols("alpha").len(), 1);
+	test::eq(session.find_symbols("beta").len(), 1);
+
+	test_support::reindex(&session, INC_A_PATH, "module inc;\n\nfn int gamma()\n{\n\treturn 3;\n}\n");
+
+	test::@check(session.find_symbols("alpha").is_empty(), "the renamed declaration kept its old name");
+	test::eq(session.find_symbols("gamma").len(), 1);
+	test::@check(!session.find_symbols("beta").is_empty(), "the other file's symbol was collateral damage");
+	test::eq(session.find_symbols("beta")[0].owner, session.entry(INC_B_PATH));
+}
+
+<*
+ Two files declaring into one module: the module's node list has to end up
+ holding exactly the surviving nodes of both.
+*>
+fn void incremental_edit_keeps_the_shared_module_intact() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, INC_A_PATH, INC_A);
+	test_support::reindex(&session, INC_B_PATH, INC_B);
+
+	Module* shared = session.ctx.modules.get("inc")!!;
+	sz before      = shared.nodes.len();
+
+	test_support::reindex(&session, INC_A_PATH, INC_A);
+
+	Module* after = session.ctx.modules.get("inc")!!;
+	test::eq(after.nodes.len(), before);
+	test::eq(session.find_in_module("inc", "alpha").len(), 1);
+	test::eq(session.find_in_module("inc", "beta").len(), 1);
+
+	// Every node still in the module has to be reachable by id, and the
+	// map must not have kept the ids of the nodes that were replaced.
+	test::eq(after.node_map.len(), after.nodes.len());
+	foreach (Node* node : after.nodes) {
+		test::@check(after.node_map.has_key(node.id), "a module node is missing from node_map");
+	}
+}
+
+<*
+ A stale Node* is the failure this design can produce and the old full
+ rebuild could not: set_file frees the arena the previous AST lived in.
+ Reading the source text back through the ref is what catches it.
+*>
+fn void incremental_refs_point_at_the_current_parse() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, INC_A_PATH, INC_A);
+
+	test_support::reindex(&session, INC_A_PATH, "module inc;\n\nfn int alpha()\n{\n\treturn 42;\n}\n");
+
+	List{SymbolRef} refs = session.find_symbols("alpha");
+	test::eq(refs.len(), 1);
+
+	String text = session.node_source_text(refs[0].node);
+	test::@check(text.contains("return 42;"), "the ref still points at the old parse: '%s'", text);
+	test::eq(session.node_signature_text(refs[0].node), "fn int alpha()");
+
+	test::eq(session.entry_for_node(refs[0].node), session.entry(INC_A_PATH));
+	test::eq(session.module_of(refs[0].node), session.ctx.modules.get("inc")!!);
+}
+
+<*
+ A module with no files left should stop being offered by import
+ completion.
+*>
+fn void incremental_removing_the_last_file_drops_the_module() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, INC_A_PATH, INC_A);
+	test_support::reindex(&session, INC_B_PATH, INC_B);
+	test::@check(session.ctx.modules.has_key("inc"));
+
+	session.remove_file(INC_A_PATH);
+	test::@check(session.ctx.modules.has_key("inc"), "the module still has a file in it");
+	test::@check(session.find_symbols("alpha").is_empty());
+
+	session.remove_file(INC_B_PATH);
+	test::@check(!session.ctx.modules.has_key("inc"), "an empty module is still being offered");
+	test::@check(session.find_symbols("beta").is_empty());
+	test::eq(session.node_owner.len(), 0);
+}
+
+<*
+ The strongest check available: after a series of edits the incremental
+ index has to be indistinguishable from one derived in a single pass.
+*>
+fn void incremental_index_matches_a_full_rebuild() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, INC_A_PATH, INC_A);
+	test_support::reindex(&session, INC_B_PATH, INC_B);
+	test_support::reindex(&session, test_support::FIXTURE_PATH, test_support::FIXTURE_SRC);
+
+	test_support::reindex(
+		&session,
+		INC_A_PATH,
+		"module inc;\n\nfn int alpha(int n)\n{\n\treturn n;\n}\n\nstruct Extra\n{\n\tint v;\n}\n"
+	);
+	test_support::reindex(&session, INC_B_PATH, "module other_inc;\n\nfn int beta()\n{\n\treturn 2;\n}\n");
+
+	sz modules = session.ctx.modules.len();
+	sz names   = session.by_name.len();
+	sz owners  = session.node_owner.len();
+
+	session.rebuild_index();
+
+	test::eq(session.ctx.modules.len(), modules);
+	test::eq(session.by_name.len(), names);
+	test::eq(session.node_owner.len(), owners);
+
+	// And the moved declaration followed its file into the new module.
+	test::eq(session.find_in_module("other_inc", "beta").len(), 1);
+	test::@check(session.find_in_module("inc", "beta").is_empty(), "the old module kept a moved symbol");
+	test::eq(session.find_symbols("Extra").len(), 1);
+	test::eq(session.find_symbols("add").len(), 1);
+}

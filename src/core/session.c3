@@ -2,6 +2,7 @@ module lsp::core;
 
 import std::collections::list;
 import std::collections::map;
+import std::io;
 
 import analyzer::core;
 import analyzer::core::context;
@@ -58,6 +59,27 @@ struct FileEntry {
 	Scope* root_ct_scope;
 	LineIndex lines;
 	String text;
+
+	<*
+	 What this file put into the shared index, so it can be taken back out
+	 without re-deriving the whole workspace.
+
+	 Session allocated on purpose. Unindexing happens before set_file
+	 resets the arena, but these lists have to outlive individual edits and
+	 must never point into the per file arena they describe.
+	*>
+	List{String} index_modules;
+	List{ulong} index_node_ids;
+	List{IndexedName} index_names;
+}
+
+<*
+ The two keys one symbol occupies: its bare name in `by_name`, and its
+ module qualified name in `by_module`.
+*>
+struct IndexedName {
+	String name;
+	String qualified;
 }
 
 <*
@@ -92,7 +114,7 @@ fn void LspSession.init(&self, Allocator allocator) {
 	self.allocator = allocator;
 	self.ctx = context::new(allocator);
 
-	// context::create builds a registry and a lookup from `allocator`, but
+	// context::new builds a registry and a lookup from `allocator`, but
 	// rebuild_index replaces both with index arena copies on the first
 	// update. Drop the originals now so they are not stranded; nothing
 	// between here and that first rebuild reads either one.
@@ -125,13 +147,21 @@ fn void LspSession.free(&self) {
 	}
 
 	self.entries.@each(; String path, FileEntry* entry) {
+		entry.free_index_records(self.allocator);
 		entry.arena.free();
 		entry.path.free(self.allocator);
 		alloc::free(self.allocator, entry);
 	};
 	self.entries.free();
 
+	self.by_name.@each(; String name, List{SymbolRef} refs) {
+		refs.free();
+	};
 	self.by_name.free();
+
+	self.by_module.@each(; String name, List{SymbolRef} refs) {
+		refs.free();
+	};
 	self.by_module.free();
 	self.node_owner.free();
 	self.index_arena.free();
@@ -211,6 +241,9 @@ fn void LspSession.set_file(&self, String path, String text) {
 		entry = alloc::new(self.allocator, FileEntry);
 		entry.path = path.copy(self.allocator);
 		entry.arena.init(self.allocator, ARENA_PAGE_SIZE);
+		entry.index_modules.init(self.allocator, 2);
+		entry.index_node_ids.init(self.allocator, 16);
+		entry.index_names.init(self.allocator, 16);
 		self.entries.set(entry.path, entry);
 	}
 
@@ -249,104 +282,295 @@ fn void LspSession.remove_file(&self, String path) {
 	FileEntry* entry = self.entries.get(path) ?? null;
 	if (!entry) return;
 
+	self.unindex(path);
+
 	(void)self.ctx.files.remove(path);
 	self.entries.remove(path);
 
+	entry.free_index_records(self.allocator);
 	entry.arena.free();
 	entry.path.free(self.allocator);
 	alloc::free(self.allocator, entry);
 }
 
 <*
- Rebuild the module table and symbol index from every tracked file.
+ Forget what this file contributed, releasing the recorded keys.
 
- This has to be a full rebuild: `mod::create` is get-or-create and
- `mod::add_node` appends unconditionally, so registering a file twice
- without clearing would duplicate every node in its module.
-
- TODO: this is O(all files) per update batch. It only walks top level
- statements, but it should become incremental once the analyzer can
- invalidate a single file's contribution to a module.
+ The module names are not freed here: they are index arena strings owned
+ by the Module itself, only borrowed by this list.
 
  @param [&inout] self
 *>
-fn void LspSession.rebuild_index(&self) {
-	// Module structs and their lists live in the index arena, so the
-	// reset below reclaims them; the maps themselves are session owned.
-	self.ctx.modules.clear();
-	self.by_name.clear();
-	self.by_module.clear();
-	self.node_owner.clear();
-	self.index_arena.reset();
+fn void FileEntry.clear_index_records(&self, Allocator allocator) {
+	foreach (IndexedName indexed : self.index_names) {
+		indexed.name.free(allocator);
+		indexed.qualified.free(allocator);
+	}
 
-	Allocator index_alloc = &self.index_arena;
-	Allocator saved       = self.ctx.allocator;
-	self.ctx.allocator = index_alloc;
-
-	// Both of these index into the arena we just reset, and both are
-	// keyed by strings that live there too, so they have to be rebuilt
-	// alongside it rather than accumulating dangling entries.
-	self.ctx.registry = registry::new(index_alloc);
-	self.ctx.lookup = lookup::new(self.ctx, index_alloc);
-
-	self.entries.@each(; String path, FileEntry* entry) {
-		if (entry.sf) {
-			foreach (Node* node : entry.sf.ast.nodes) {
-				if (!node) continue;
-				self.node_owner.set((ulong)node.id, entry);
-			}
-
-			self.ctx.current_source_file = entry.sf;
-			registry::register(self.ctx, entry.sf);
-		}
-	};
-
-	self.ctx.allocator = saved;
-
-	self.ctx.modules.@each(; String mod_name, Module* module_ptr) {
-		foreach (Node* node : module_ptr.nodes) {
-			if (!node) continue;
-
-			switch (node.kind) {
-				case MODULE_DECL:
-				case IMPORT_DECL:
-				case CONTRACT_DECL:
-					continue;
-				default:
-					break;
-			}
-
-			String name = cursor::spelling(node, tmem) ?? "";
-			if (name.len == 0) continue;
-
-			SymbolRef ref = {
-				.node = node,
-				.module_name = mod_name,
-				.owner = self.node_owner.get((ulong)node.id) ?? null,
-			};
-
-			self.push_symbol(&self.by_name, name, ref);
-			self.push_symbol(&self.by_module, qualified_name(mod_name, name), ref);
-		}
-	};
+	self.index_modules.clear();
+	self.index_node_ids.clear();
+	self.index_names.clear();
 }
 
 <*
  @param [&inout] self
+*>
+fn void FileEntry.free_index_records(&self, Allocator allocator) {
+	self.clear_index_records(allocator);
+
+	self.index_modules.free();
+	self.index_node_ids.free();
+	self.index_names.free();
+}
+
+<*
+ Take one file's contribution back out of the shared index.
+
+ Must run before set_file resets that file's arena: every Node* the index
+ holds for this file points into it, and the records below are what makes
+ removing them possible once the AST itself is gone.
+
+ @param [&inout] self
+*>
+fn void LspSession.unindex(&self, String path) {
+	FileEntry* entry = self.entries.get(path) ?? null;
+	if (!entry) return;
+
+	foreach (IndexedName indexed : entry.index_names) {
+		self.drop_symbol(&self.by_name, indexed.name, entry);
+		self.drop_symbol(&self.by_module, indexed.qualified, entry);
+	}
+
+	foreach (ulong id : entry.index_node_ids) {
+		(void)self.node_owner.remove(id);
+	}
+
+	foreach (String mod_name : entry.index_modules) {
+		Module* module_ptr = self.ctx.modules.get(mod_name) ?? null;
+		if (!module_ptr) continue;
+
+		foreach (ulong id : entry.index_node_ids) {
+			(void)module_ptr.node_map.remove((NodeID)id);
+		}
+
+		// One pass per module rather than a removal per node: List has no
+		// remove-by-value and the nodes of one file are interleaved with
+		// every other file that declares into the same module.
+		retain_registered(&module_ptr.nodes, &module_ptr.node_map);
+		retain_registered_decls(&module_ptr.module_decls, &module_ptr.node_map);
+
+		// A module with nothing left in it should stop being offered by
+		// import completion. Its arena memory stays; that is bounded by the
+		// workspace, not by how often files are edited.
+		if (module_ptr.nodes.is_empty()) (void)self.ctx.modules.remove(mod_name);
+	}
+
+	entry.clear_index_records(self.allocator);
+}
+
+<*
+ Keep only the nodes still present in `node_map`, which unindex has
+ already had this file's ids removed from.
+
+ @param [&inout] nodes
+ @param [&in] node_map
+*>
+fn void retain_registered(List{Node*}* nodes, HashMap{NodeID, Node*}* node_map) @local {
+	sz write = 0;
+
+	for (sz read = 0; read < nodes.len(); read++) {
+		Node* node = nodes.get(read);
+		if (!node || !node_map.has_key(node.id)) continue;
+
+		nodes.set(write, node);
+		write++;
+	}
+
+	while (nodes.len() > write) (void)nodes.pop();
+}
+
+<*
+ @param [&inout] decls
+ @param [&in] node_map
+*>
+fn void retain_registered_decls(List{ModuleDecl*}* decls, HashMap{NodeID, Node*}* node_map) @local {
+	sz write = 0;
+
+	for (sz read = 0; read < decls.len(); read++) {
+		ModuleDecl* decl = decls.get(read);
+		if (!decl || !node_map.has_key(decl.node.id)) continue;
+
+		decls.set(write, decl);
+		write++;
+	}
+
+	while (decls.len() > write) (void)decls.pop();
+}
+
+<*
+ Register a freshly parsed file into the module table and symbol index.
+
+ This is registry::register's module bookkeeping without its declaration
+ maps: ctx.registry and ctx.lookup are write only - nothing in the LSP or
+ in the analyzer's sema ever reads them - and populating them cost a
+ formatted qualified name plus two allocations and two map inserts for
+ every declaration in the workspace.
+
+ @param [&inout] self
+*>
+fn void LspSession.index(&self, String path) => @pool() {
+	FileEntry* entry = self.entries.get(path) ?? null;
+	if (!entry || !entry.sf) return;
+
+	Allocator saved = self.ctx.allocator;
+	self.ctx.allocator = &self.index_arena;
+	defer self.ctx.allocator = saved;
+
+	Module* current_mod;
+
+	// Top level statements only. The whole node list is two orders of
+	// magnitude larger and nothing ever looks a nested node up by id.
+	foreach (Node* node : entry.sf.ast.statements) {
+		if (!node) continue;
+		if (node.kind == CONTRACT_DECL) continue;
+
+		if (node.kind == MODULE_DECL) {
+			ModuleDecl* mod_decl = node.as(ModuleDecl);
+			if (mod_decl.path && mod_decl.path.kind == PATH_EXPR) {
+				current_mod = self.use_module(entry, mod_decl.path.as(PathExpr).path.text);
+			}
+		}
+
+		// A file with no module declaration is named after itself, the same
+		// way registry::register infers it.
+		if (!current_mod) {
+			Path? file_path = path::tnew(entry.path);
+			if (catch err = file_path) {
+				diagnostics::log_error("Failed to infer module name: %s", err);
+				return;
+			}
+			current_mod = self.use_module(entry, file_path.basename());
+		}
+
+		mod::add_node(current_mod, node);
+		entry.index_node_ids.push((ulong)node.id);
+		self.node_owner.set((ulong)node.id, entry);
+
+		switch (node.kind) {
+			case MODULE_DECL:
+			case IMPORT_DECL:
+				continue;
+			default:
+				break;
+		}
+
+		String name = cursor::spelling(node, tmem) ?? "";
+		if (name.len == 0) continue;
+
+		SymbolRef ref    = { .node = node, .module_name = current_mod.name, .owner = entry };
+		String qualified = qualified_name(current_mod.name, name);
+
+		self.push_symbol(&self.by_name, name, ref);
+		self.push_symbol(&self.by_module, qualified, ref);
+
+		// The keys are recorded so unindex can find these two buckets
+		// again. Copies, because the module name lives in the index arena
+		// and `name` came from the file arena that set_file will reset.
+		entry.index_names.push(
+			{
+				.name = name.copy(self.allocator),
+				.qualified = qualified.copy(self.allocator),
+			}
+		);
+	}
+}
+
+<*
+ Get or create `name`, recording that this file declares into it.
+
+ @param [&inout] self
+ @param [&inout] entry
+*>
+fn Module* LspSession.use_module(&self, FileEntry* entry, String name) {
+	// mod::new stores the name pointer as given, and the identifier it came
+	// from lives in the file arena that set_file resets. Copy on creation
+	// only, so re-registering an existing module costs nothing.
+	Module* module_ptr = self.ctx.modules.get(name) ?? null;
+	if (!module_ptr) module_ptr = mod::new(self.ctx, name.copy(&self.index_arena));
+
+	foreach (String known : entry.index_modules) {
+		if (known == module_ptr.name) return module_ptr;
+	}
+
+	entry.index_modules.push(module_ptr.name);
+	return module_ptr;
+}
+
+<*
+ Re-derive the whole index. The startup path, and the fallback whenever a
+ caller wants to be sure nothing has drifted.
+
+ @param [&inout] self
+*>
+fn void LspSession.rebuild_index(&self) {
+	self.entries.@each(; String path, FileEntry* entry) {
+		self.unindex(path);
+	};
+
+	self.entries.@each(; String path, FileEntry* entry) {
+		self.index(path);
+	};
+}
+
+<*
+ Add one ref to a name bucket.
+
+ Buckets are session allocated rather than index arena allocated: they
+ outlive individual files and have to be freed one at a time as files
+ come and go. HashMap copies and frees the String key itself, so the key
+ needs no copy here.
+
+ @param [&inout] self
  @param [&inout] table
 *>
 fn void LspSession.push_symbol(&self, HashMap{String, List{SymbolRef}}* table, String key, SymbolRef ref) {
-	Allocator index_alloc = &self.index_arena;
-
 	if (try List{SymbolRef}* existing = table.get_ref(key)) {
 		existing.push(ref);
 		return;
 	}
 
 	List{SymbolRef} fresh;
-	fresh.init(index_alloc, 2);
+	fresh.init(self.allocator, 2);
 	fresh.push(ref);
-	table.set(key.copy(index_alloc), fresh);
+	table.set(key, fresh);
+}
+
+<*
+ Drop every ref `owner` contributed to a name bucket, and the bucket
+ itself once it is empty.
+
+ @param [&inout] self
+ @param [&inout] table
+*>
+fn void LspSession.drop_symbol(&self, HashMap{String, List{SymbolRef}}* table, String key, FileEntry* owner) {
+	List{SymbolRef}* bucket = table.get_ref(key) ?? null;
+	if (!bucket) return;
+
+	sz write = 0;
+	for (sz read = 0; read < bucket.len(); read++) {
+		SymbolRef ref = bucket.get(read);
+		if (ref.owner == owner) continue;
+
+		bucket.set(write, ref);
+		write++;
+	}
+
+	while (bucket.len() > write) (void)bucket.pop();
+
+	if (bucket.is_empty()) {
+		bucket.free();
+		(void)table.remove(key);
+	}
 }
 
 fn String qualified_name(String module_name, String name) {
