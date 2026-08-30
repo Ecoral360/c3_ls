@@ -23,7 +23,14 @@ struct Context {
 	SourceFile* sf;
 	Module* mod;
 	Allocator allocator;
+
+	LspAccessKind access;
+	// stores the last Type before the typed thing. 
+	// i.e : in `a.b.c`, base_node is the node corresponding to where the type of `b` is defined
+	Node* base_node;
+	String base_identifier; // Stores 'variable' or 'Type' string found before the operator
 	String prefix;
+
 	CompletionContextKind scope;
 	Node* leaf_node;
 	Node* top_level_node;
@@ -32,8 +39,6 @@ struct Context {
 	*>
 	List{Token} tokens;
 
-	LspAccessKind access;
-	String base_identifier; // Stores 'variable' or 'Type' string found before the operator
 	Location base_location;
 }
 
@@ -162,8 +167,10 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 	ctx.access = NONE;
 	ctx.base_identifier = "";
 
-	ctx.top_level_node = core::top_level_at(ctx.sf, ctx.location);
-	ctx.leaf_node = cursor::find_at(ctx.sf.ast.statements.array_view(), { ctx.location, ctx.location });
+	NodeEntry node_entry = cursor::node(&ctx.sf.ast, ctx.location);
+
+	ctx.top_level_node = lengthof(node_entry.path) > 0 ? ctx.sf.ast.statements[node_entry.path[0]] : null; //core::top_level_at(ctx.sf, ctx.location);
+	ctx.leaf_node = node_entry.node; //cursor::find_at(ctx.sf.ast.statements.array_view(), { ctx.location, ctx.location });
 
 	context_populate_tokens(&ctx);
 	detect_access_context(&ctx);
@@ -174,12 +181,12 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 	log::info("base_ident: %s", ctx.base_identifier);
 	log::info("prefix: %s", ctx.prefix);
 
-	if (provide_member_access(&ctx, &items)) {
+	if (ctx.scope == IMPORT) {
+		provide_imports(&ctx, &items);
 		return finish(&items);
 	}
 
-	if (ctx.scope == IMPORT) {
-		provide_imports(&ctx, &items);
+	if (provide_member_access(&ctx, &items)) {
 		return finish(&items);
 	}
 
@@ -197,6 +204,7 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 fn void provide_imports(Context* ctx, List{CompletionItem}* items) {
 	ctx.session.ctx.modules.@each(; name, mod) {
 		do SCOPE: {
+			log::info(name);
 			if (ctx.prefix.len > 0 && !name.starts_with(ctx.prefix)) {
 				break SCOPE;
 			}

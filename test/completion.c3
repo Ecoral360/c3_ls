@@ -538,7 +538,10 @@ fn void instance_access_declines_an_unresolvable_base() => @pool() {
 		TYPING_PATH,
 		test_support::loc_after(TYPING_SRC, "p.")
 	);
+	// base_node is what provide_instance_access reads now; a chain that did
+	// not resolve leaves it null.
 	ctx.base_identifier = "not_a_variable";
+	ctx.base_node = null;
 
 	List{CompletionItem} items;
 	items.tinit();
@@ -745,4 +748,230 @@ fn void resolve_params_keep_the_item() => @pool() {
 	test::eq(item.filter_text, "add");
 	test::eq(item.sort_text, "0005_add");
 	test::eq(item.data, "15473;add");
+}
+// ---------------------------------------------------------------------
+// Access chains
+// ---------------------------------------------------------------------
+
+const String CHAIN_SRC = `module chained;
+
+struct Point
+{
+	int x;
+	int y;
+}
+
+struct Outer
+{
+	Point inner;
+	int id;
+}
+
+struct Deep
+{
+	Outer mid;
+}
+
+Point global_point;
+
+fn Point make_point()
+{
+	Point p;
+	return p;
+}
+
+fn Outer make_outer()
+{
+	Outer o;
+	return o;
+}
+
+fn void go(Point param)
+{
+	Point local;
+	Outer o;
+	Deep d;
+	Point[4] arr;
+	PLACEHOLDER
+}
+`;
+
+<*
+ A base that is more than a bare identifier.
+
+ ctx.base_node holds the declaration the whole chain evaluates to, so
+ every hop is resolved before anything is offered: name to declaration,
+ declaration to its written type name, that name back to a declaration.
+*>
+fn void chain_follows_nested_fields() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] one = test_support::member_labels_of(&session, CHAIN_SRC, "o.");
+	test::eq(one.len, 2);
+	test::@check(test_support::has(one, "inner") && test_support::has(one, "id"), "got %s", one);
+
+	// Two hops: the type of o.inner, not of o.
+	String[] two = test_support::member_labels_of(&session, CHAIN_SRC, "o.inner.");
+	test::eq(two.len, 2);
+	test::@check(test_support::has(two, "x") && test_support::has(two, "y"), "got %s", two);
+
+	// Three, with the last one narrowed by what is being typed.
+	String[] three = test_support::member_labels_of(&session, CHAIN_SRC, "d.mid.inner.");
+	test::@check(test_support::has(three, "x"), "got %s", three);
+	test::eq(test_support::member_labels_of(&session, CHAIN_SRC, "d.mid.inner.y").len, 1);
+}
+
+<*
+ 'foo().x' - a call stands for whatever it returns, so the chain has to
+ step through the function's return type.
+*>
+fn void chain_follows_call_results() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] direct = test_support::member_labels_of(&session, CHAIN_SRC, "make_point().");
+	test::eq(direct.len, 2);
+	test::@check(test_support::has(direct, "x"), "got %s", direct);
+
+	// A call followed by a field hop.
+	String[] nested = test_support::member_labels_of(&session, CHAIN_SRC, "make_outer().inner.");
+	test::eq(nested.len, 2);
+	test::@check(test_support::has(nested, "y"), "got %s", nested);
+
+	test::eq(test_support::member_labels_of(&session, CHAIN_SRC, "make_point().x").len, 1);
+}
+
+<*
+ An index yields the element, which raw_type_identifier already unwraps,
+ and parameters and file scope variables resolve like any other name.
+*>
+fn void chain_follows_indexes_and_other_bases() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::member_labels_of(&session, CHAIN_SRC, "arr[0].").len, 2);
+	test::eq(test_support::member_labels_of(&session, CHAIN_SRC, "arr[1].y").len, 1);
+	test::eq(test_support::member_labels_of(&session, CHAIN_SRC, "param.").len, 2);
+	test::eq(test_support::member_labels_of(&session, CHAIN_SRC, "global_point.").len, 2);
+}
+
+<*
+ A chain that cannot be followed offers nothing rather than falling back
+ to the global list, which after a dot would be noise.
+*>
+fn void chain_declines_when_a_hop_fails() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::member_labels_of(&session, CHAIN_SRC, "o.nope.").len, 0);
+	test::eq(test_support::member_labels_of(&session, CHAIN_SRC, "not_a_thing.").len, 0);
+
+	// Methods would need a method registry the analyzer does not have.
+	test::eq(test_support::member_labels_of(&session, CHAIN_SRC, "o.inner.method().").len, 0);
+}
+
+<*
+ base_node is the declaration the chain names, which is what the comment
+ on the field describes: for 'a.b.c' it is where the type of 'b' is
+ declared.
+*>
+fn void chain_sets_base_node_to_the_type_declaration() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String text = CHAIN_SRC.treplace("PLACEHOLDER", "o.inner.x");
+	test_support::load(&session, "/virtual/typed.c3", text);
+
+	Context ctx = test_support::make_completion_context(
+		&session,
+		"/virtual/typed.c3",
+		test_support::loc_after(text, "o.inner.x")
+	);
+
+	test::eq(ctx.access, LspAccessKind.INSTANCE);
+	test::eq(ctx.base_identifier, "inner");
+	test::ne(ctx.base_node, null);
+	test::eq(ctx.base_node.kind, NodeKind.STRUCT_DECL);
+	test::eq(ctx.base_node, test_support::find_top_level(&session, "/virtual/typed.c3", "Point"));
+	test::eq(ctx.prefix, "x");
+}
+<*
+ C3 lets a type or a function be defined after the code that uses it, so
+ completion has to resolve against declarations that sit below the
+ cursor.
+
+ That used to fail for the one shape it matters most in. A trailing '.'
+ is the normal state of a half typed access, and parse_access_expr sent
+ parse_expr at whatever followed it - which consumed the closing brace
+ and then the next declaration, deleting it from the index. 'v.a' worked
+ while 'v.' did not, purely because the member token stopped the damage.
+*>
+const String FORWARD_SRC = `module forward;
+
+fn void go()
+{
+	Late v;
+	PLACEHOLDER
+}
+
+struct Late
+{
+	int a;
+	int b;
+}
+
+fn Late later()
+{
+	Late l;
+	return l;
+}
+`;
+
+fn void declarations_below_the_cursor_still_resolve() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	// The struct is declared after the function that uses it.
+	String[] fields = test_support::member_labels_of(&session, FORWARD_SRC, "v.");
+	test::eq(fields.len, 2);
+	test::@check(test_support::has(fields, "a") && test_support::has(fields, "b"), "got %s", fields);
+
+	// And so is the function whose return type this needs.
+	String[] returned = test_support::member_labels_of(&session, FORWARD_SRC, "later().");
+	test::eq(returned.len, 2);
+	test::@check(test_support::has(returned, "a"), "got %s", returned);
+
+	test::eq(test_support::member_labels_of(&session, FORWARD_SRC, "later().b").len, 1);
+}
+
+<*
+ The declaration after a dangling access has to survive parsing at all -
+ the completion above can only work if it is still in the index.
+*>
+fn void a_dangling_access_does_not_eat_the_next_declaration() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String text = FORWARD_SRC.treplace("PLACEHOLDER", "v.");
+	test_support::load(&session, "/virtual/forward.c3", text);
+
+	test::eq(session.find_symbols("Late").len(), 1);
+	test::eq(session.find_symbols("later").len(), 1);
+	test::eq(session.find_symbols("go").len(), 1);
+
+	// The same file with the access completed indexes identically.
+	LspSession complete;
+	complete.init(mem);
+	defer complete.free();
+	test_support::load(&complete, "/virtual/forward.c3", FORWARD_SRC.treplace("PLACEHOLDER", "v.a;"));
+
+	test::eq(session.by_name.len(), complete.by_name.len());
 }

@@ -1,6 +1,7 @@
 module lsp::analysis @test;
 
 import analyzer::core;
+import analyzer::cursor;
 
 import lsp::core;
 import lsp::test_support;
@@ -171,4 +172,100 @@ fn void format_contract_markdown_escapes_the_signature() => @pool() {
 
 	test::@check(markup.contains(`\"x\"`), "quotes were not escaped: %s", markup);
 	test::@check(!markup.contains(`"x"`), "an unescaped quote survived: %s", markup);
+}
+
+// ---------------------------------------------------------------------
+// Module qualified references
+// ---------------------------------------------------------------------
+
+const String QUALIFIED_SRC = `module user;
+
+import fixture;
+
+fn void go()
+{
+	int a = fixture::add(1, 2);
+	int b = add(1, 2);
+	fixture::Point p;
+	Point q;
+}
+`;
+
+const String QUALIFIED_PATH = "/virtual/user.c3";
+
+<*
+ The qualifier is not part of the name, and it does not live in the same
+ place for every node: on IdentExpr.path_expr for a value, on
+ TypeExpr.unresolved.path for a type, and behind the callee for a call.
+*>
+fn void qualified_symbol_at_reads_the_module_prefix() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+	test_support::setup_qualified(&session, QUALIFIED_PATH, QUALIFIED_SRC);
+
+	QualifiedSymbol call = qualified_symbol_at(
+		test_support::node_at(&session, QUALIFIED_PATH, QUALIFIED_SRC, "fixture::add"),
+		{ }
+	);
+	test::eq(call.name, "add");
+	test::eq(call.path, "fixture");
+
+	QualifiedSymbol bare = qualified_symbol_at(
+		test_support::node_at(&session, QUALIFIED_PATH, QUALIFIED_SRC, "add(1, 2);\n\tfixture::Point"),
+		{ }
+	);
+	test::eq(bare.name, "add");
+	test::eq(bare.path, "");
+
+	QualifiedSymbol type = qualified_symbol_at(
+		test_support::node_at(&session, QUALIFIED_PATH, QUALIFIED_SRC, "Point p"),
+		{ }
+	);
+	test::eq(type.name, "Point");
+	test::eq(type.path, "fixture");
+
+	QualifiedSymbol bare_type = qualified_symbol_at(
+		test_support::node_at(&session, QUALIFIED_PATH, QUALIFIED_SRC, "Point q"),
+		{ }
+	);
+	test::eq(bare_type.name, "Point");
+	test::eq(bare_type.path, "");
+
+	test::eq(qualified_symbol_at(null, { }).name, "");
+}
+
+<*
+ A qualified reference means one module's declaration. Without this,
+ 'string::tformat' offered every tformat in the workspace, and a
+ qualified type resolved to nothing at all because cursor::spelling
+ flattens it to 'std::io::File', which is not how the index is keyed.
+*>
+fn void lookup_symbol_narrows_to_the_named_module() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+	test_support::setup_qualified(&session, QUALIFIED_PATH, QUALIFIED_SRC);
+
+	Module* current = session.module_for_file(QUALIFIED_PATH);
+
+	// Both modules declare 'add', so the bare name stays ambiguous.
+	test::eq(lookup_symbol(&session, current, { .name = "add" }).len(), 2);
+
+	List{SymbolRef} narrowed = lookup_symbol(&session, current, { .name = "add", .path = "fixture" });
+	test::eq(narrowed.len(), 1);
+	test::eq(narrowed[0].module_name, "fixture");
+
+	List{SymbolRef} other = lookup_symbol(&session, current, { .name = "add", .path = "other" });
+	test::eq(other.len(), 1);
+	test::eq(other[0].module_name, "other");
+
+	// A qualified type resolves the same way.
+	test::eq(lookup_symbol(&session, current, { .name = "Point", .path = "fixture" }).len(), 1);
+
+	// A qualifier naming no known module is more likely a gap in the index
+	// than a deliberate reference to nothing, so it falls back to the name.
+	test::eq(lookup_symbol(&session, current, { .name = "add", .path = "no_such_module" }).len(), 2);
+
+	test::@check(lookup_symbol(&session, current, { .name = "" }).is_empty());
 }

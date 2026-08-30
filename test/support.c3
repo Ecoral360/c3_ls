@@ -385,3 +385,56 @@ fn void reindex(LspSession* session, String path, String text) {
 	session.index(path);
 	session.analyze(path);
 }
+
+<*
+ Labels of the member completions offered with `typed` written on the
+ PLACEHOLDER line of `src`, with the cursor at the end of it.
+*>
+fn String[] member_labels_of(LspSession* session, String src, String typed) {
+	String text = src.treplace("PLACEHOLDER", typed);
+	load(session, "/virtual/typed.c3", text);
+
+	Context ctx = make_completion_context(session, "/virtual/typed.c3", loc_after(text, typed));
+
+	List{CompletionItem} items;
+	items.tinit();
+	completion::provide_member_access(&ctx, &items);
+
+	List{String} labels;
+	labels.tinit();
+	foreach (CompletionItem item : items) labels.push(item.label);
+
+	return labels.to_tarray();
+}
+
+fn bool has(String[] labels, String wanted) {
+	foreach (String label : labels) {
+		if (label == wanted) return true;
+	}
+	return false;
+}
+
+<*
+ Node the cursor lands on for the first occurrence of `needle`, the way
+ goto definition and hover find it.
+*>
+fn Node* node_at(LspSession* session, String path, String src, String needle) {
+	FileEntry* entry = session.entry(path);
+	if (!entry || !entry.sf) return null;
+
+	return cursor::node(&entry.sf.ast, loc_of(src, needle)).node;
+}
+
+<*
+ Load a file alongside the two fixture modules, so a bare name really is
+ ambiguous: both of them declare `add`.
+
+ @param [&inout] session
+*>
+fn void setup_qualified(LspSession* session, String path, String src) {
+	session.set_file(FIXTURE_PATH, FIXTURE_SRC);
+	session.set_file(OTHER_PATH, OTHER_SRC);
+	session.set_file(path, src);
+	session.rebuild_index();
+	session.analyze(path);
+}

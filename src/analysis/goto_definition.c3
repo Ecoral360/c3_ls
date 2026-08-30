@@ -7,6 +7,7 @@ import analyzer::sema;
 import std::collections::list;
 import std::collections::map;
 
+import lsp::analysis;
 import lsp::core;
 
 import uri;
@@ -32,20 +33,24 @@ fn LspLocation[]? goto_definition(LspProject* project, Uri uri, LspPosition pos)
 
 	log::info("Kind: %s", node.kind.description);
 
-	String symbol = extract_symbol_at_cursor(node, loc) ?? "";
-	if (!symbol) {
+	QualifiedSymbol symbol = analysis::qualified_symbol_at(node, loc);
+	if (symbol.name.len == 0) {
 		log::error("No valid symbol targeted at this offset context.");
 		return { };
 	}
 
-	log::info("symbol: %s", symbol);
+	log::info("symbol: %s%s%s", symbol.path, symbol.path.len > 0 ? "::" : "", symbol.name);
 
 	List{LspLocation} locations;
 	locations.tinit();
-	List{SymbolRef} entries = project.session.find_symbols(symbol);
+	List{SymbolRef} entries = analysis::lookup_symbol(
+		&project.session,
+		project.session.module_for_file(uri.path),
+		symbol
+	);
 
 	if (entries.len() <= 0) {
-		log::error("No entries found for symbol: %s", symbol);
+		log::error("No entries found for symbol: %s", symbol.name);
 	}
 
 	foreach (SymbolRef ref : entries) {
@@ -68,35 +73,4 @@ fn LspLocation[]? goto_definition(LspProject* project, Uri uri, LspPosition pos)
 	log::info("Sending %d", locations.len());
 
 	return locations.array_view();
-}
-
-fn String? extract_symbol_at_cursor(Node* node, Location loc) {
-	if (!node || !node.is_valid()) return "";
-
-	switch (node.kind) {
-		case FN_DECL:
-			FnDecl* fndecl = node.as(FnDecl);
-
-			if (!fndecl.name || !fndecl.name.range.contains(loc)) {
-				log::info("Cursor inside FN_DECL but missed the name token.");
-				return "";
-			}
-			return fndecl.name.text;
-		case STRUCT_DECL:
-			StructDecl* structdecl = node.as(StructDecl);
-
-			if (!structdecl.name || !structdecl.name.range.contains(loc)) return "";
-
-			return structdecl.name.text;
-
-		case VAR_DECL:
-			VarDecl* vardecl = node.as(VarDecl);
-
-			if (!vardecl.name || !vardecl.name.range.contains(loc)) return "";
-			return vardecl.name.text;
-		case TYPE_EXPR:
-			return cursor::raw_type_identifier(node);
-		default:
-			return cursor::spelling(node, tmem);
-	}
 }

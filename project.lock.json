@@ -3,12 +3,12 @@
   "packages": [
     {
       "name": "c3_analyzer",
-      "repo": "Zathyy/c3-analyzer",
+      "repo": "Ecoral360/c3-analyzer",
       "origin": "github",
       "path": "lib/c3-analyzer.c3l",
       "zip": false,
       "ref": "",
-      "commit": "c07638d436947d3375418ea97e43f3b4964c8225"
+      "commit": "6302a8340f9aeccbecce4a793f8ff84f9e25c4ca"
     },
     {
       "name": "dessert",

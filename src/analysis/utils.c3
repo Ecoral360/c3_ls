@@ -66,31 +66,27 @@ fn CompletionItemKind completion_kind_from_node(Node* node) {
 fn CompletionContextKind find_ctx_completion_kind(Context* ctx, Location cursor_loc) {
 	if (!ctx.top_level_node) return GLOBAL;
 
-	// No containment re-check here: top_level_at already picked this node
-	// for this cursor, and it accepts positions the node's own range does
-	// not cover - one past the end, or past trailing space. Re-testing with
-	// Range.contains threw those away again.
 	Node* node = ctx.top_level_node;
+
+	// switch (node.kind) {
+	// 	case FN_DECL:
+	// 		FnDecl* func = node.as(FnDecl);
+	// 		if (func.body && !is_before(cursor_loc, func.body.range.start)) {
+	// 			return EXECUTION;
+	// 		}
+	//
+	// 	case MACRO_DECL:
+	// 		MacroDecl* mac = node.as(MacroDecl);
+	// 		if (mac.body && !is_before(cursor_loc, mac.body.range.start)) {
+	// 			return EXECUTION;
+	// 		}
+	// 	
+	// 	default:
+	// }
 
 	switch (node.kind) {
 		case IMPORT_DECL:
 			return IMPORT;
-		case FN_DECL:
-			FnDecl* func = node.as(FnDecl);
-			if (func.body && !is_before(cursor_loc, func.body.range.start)) {
-				return EXECUTION;
-			}
-
-		case MACRO_DECL:
-			MacroDecl* mac = node.as(MacroDecl);
-			if (mac.body && !is_before(cursor_loc, mac.body.range.start)) {
-				return EXECUTION;
-			}
-		
-		default:
-	}
-
-	switch (node.kind) {
 		case STRUCT_DECL:
 				CompletionContextKind scope = NONE;
 				int num_braces;
@@ -486,4 +482,106 @@ fn Node* get_node(LspProject* project, Uri uri, LspPosition pos) {
 	}
 
 	return cursor::node(&entry.sf.ast, loc).node;
+}
+
+<*
+ A symbol reference as written at the cursor.
+
+ `path` is the module qualifier in front of it - the "string" of
+ `string::tformat` - with the trailing "::" removed, or empty when the
+ name was written bare.
+*>
+struct QualifiedSymbol {
+	String name;
+	String path;
+}
+
+<*
+ The symbol the cursor is on, keeping any module qualifier.
+
+ The qualifier is not part of the name and does not live in the same
+ place for every node: an identifier carries it on IdentExpr.path_expr, a
+ type on TypeExpr.unresolved.path, and a call hides both behind its
+ callee. cursor::spelling flattens all of that to a bare name (or, for a
+ type, to a concatenation that matches nothing in the index), which is
+ why this reads the fields directly.
+*>
+fn QualifiedSymbol qualified_symbol_at(Node* node, Location loc) {
+	if (!node) return { };
+
+	switch (node.kind) {
+		case CALL_EXPR:
+			// 'string::tformat(x)' - the qualifier is on the callee.
+			return qualified_symbol_at(node.as(CallExpr).callee, loc);
+
+		case IDENT_EXPR:
+			IdentExpr* ident = node.as(IdentExpr);
+			if (!ident.ident) return { };
+			return { .name = ident.ident.text, .path = path_prefix(ident.path_expr) };
+
+		case TYPE_EXPR:
+			TypeExpr* type_expr = node.as(TypeExpr);
+			if (type_expr.type_kind != TYPE_IDENTIFIER || !type_expr.unresolved.name) {
+				return { .name = cursor::raw_type_identifier(node) ?? "" };
+			}
+			return {
+				.name = type_expr.unresolved.name.text,
+				.path = path_prefix(type_expr.unresolved.path),
+			};
+
+		// On a declaration's own name, which is where goto definition is
+		// asked to jump to the thing under the cursor rather than from it.
+		case FN_DECL:
+			FnDecl* fn_decl = node.as(FnDecl);
+			if (!fn_decl.name || !fn_decl.name.range.contains(loc)) return { };
+			return { .name = fn_decl.name.text };
+
+		case STRUCT_DECL:
+			StructDecl* struct_decl = node.as(StructDecl);
+			if (!struct_decl.name || !struct_decl.name.range.contains(loc)) return { };
+			return { .name = struct_decl.name.text };
+
+		case VAR_DECL:
+			VarDecl* var_decl = node.as(VarDecl);
+			if (!var_decl.name || !var_decl.name.range.contains(loc)) return { };
+			return { .name = var_decl.name.text };
+
+		default:
+			return { .name = cursor::spelling(node, tmem) ?? "" };
+	}
+}
+
+<*
+ Module qualifier written on a path node, without its trailing "::".
+*>
+fn String path_prefix(Node* path_node) @local {
+	if (!path_node || path_node.kind != PATH_EXPR) return "";
+
+	PathExpr* path = path_node.as(PathExpr);
+	if (!path.path) return "";
+
+	return path.path.text.strip_suffix("::");
+}
+
+<*
+ Every declaration a written reference can mean.
+
+ A bare name matches everywhere it is declared, which is the best that
+ can be done without type resolution. A qualified one is narrowed to the
+ module it names, so `string::tformat` stops offering every tformat in
+ the workspace.
+*>
+fn List{SymbolRef} lookup_symbol(LspSession* session, Module* current, QualifiedSymbol symbol) {
+	if (symbol.name.len == 0) return { };
+	if (symbol.path.len == 0) return session.find_symbols(symbol.name);
+
+	String current_name = current ? current.name : "";
+	Module* target      = find_module_by_identifier(session, current_name, symbol.path);
+
+	// An unknown qualifier is more likely a gap in the index than a
+	// deliberate reference to nothing, so fall back to the bare name
+	// rather than answering with silence.
+	if (!target) return session.find_symbols(symbol.name);
+
+	return session.find_in_module(target.name, symbol.name);
 }

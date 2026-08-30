@@ -62,16 +62,20 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 	Node* node = cursor::node(&sf.ast, loc).node;
 	if (!node || !node.is_valid()) return "";
 
-	String symbol = cursor::spelling(node, tmem)!!;
+	QualifiedSymbol symbol = analysis::qualified_symbol_at(node, loc);
 
-	if (!symbol) {
+	if (symbol.name.len == 0) {
 		log::error("No valid symbol targeted at this offset context.");
 		return "";
 	}
 
-	log::info("symbol: %s", symbol);
+	log::info("symbol: %s%s%s", symbol.path, symbol.path.len > 0 ? "::" : "", symbol.name);
 
-	List{SymbolRef} origins = project.session.find_symbols(symbol);
+	List{SymbolRef} origins = analysis::lookup_symbol(
+		&project.session,
+		project.session.module_for_file(uri.path),
+		symbol
+	);
 
 	List{String} output;
 

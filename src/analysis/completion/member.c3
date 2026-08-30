@@ -14,11 +14,30 @@ import std::collections::map;
 import uri;
 
 <*
- check for '.' or '::'
+ One link of a member access chain, as written in the source.
+
+ `is_call` marks a name that was followed by a balanced '(...)', so it
+ stands for the call's result rather than the name itself.
+*>
+struct ChainSegment {
+	String name;
+	TokenKind kind;
+	Range range;
+	bool is_call;
+}
+
+<*
+ Work out whether the cursor sits after a '.' or a '::', and what the
+ thing on the left of it resolves to.
+
+ Driven off the token list rather than the AST: a file being typed into
+ rarely parses, and a half written access is exactly the shape the parser
+ turns into an error node.
 *>
 fn void detect_access_context(Context* ctx) {
 	ctx.access = NONE;
 	ctx.base_identifier = "";
+	ctx.base_node = null;
 
 	if (ctx.tokens.len() < 2) return;
 
@@ -32,28 +51,224 @@ fn void detect_access_context(Context* ctx) {
 	}
 	// If the cursor is at the very end of the file, the operator is the last token
 	if (op_idx == -1) op_idx = ctx.tokens.len() - 1;
-	if (op_idx < 1) return; // Need at least an identifier + operator
+
+	// The member being typed is a token of its own: in 'a.b' the cursor
+	// sits after 'b', so the operator is one further back.
+	if (op_idx >= 1 && is_name_token(ctx.tokens[op_idx].kind)) op_idx--;
+	if (op_idx < 1) return;
+
 	Token op_tok = ctx.tokens[op_idx];
-	Token base_tok = ctx.tokens[op_idx - 1];
+	if (op_tok.kind != DOT && op_tok.kind != SCOPE) return;
 
-	if (op_tok.kind == IDENT) {
-		op_tok = ctx.tokens[op_idx - 1];
-		base_tok = ctx.tokens[op_idx - 2];
-	} 
+	ChainSegment[] chain = extract_access_chain(ctx, op_idx);
+	if (chain.len == 0) return;
 
-	if (op_tok.kind == DOT || op_tok.kind == SCOPE) {
-		// Ensure the token right before it is the base identifier
-		switch (base_tok.kind) {
-			case IDENT:
-			case TYPE_IDENT:
-			case HASH_IDENT:
-			case AT_IDENT:
-				ctx.access = (op_tok.kind == SCOPE) ? LspAccessKind.STATIC : LspAccessKind.INSTANCE;
-				ctx.base_identifier = base_tok.value;
-				ctx.base_location = base_tok.range.start;
-			default:
-				break;
+	ChainSegment base = chain[chain.len - 1];
+
+	ctx.access = (op_tok.kind == SCOPE) ? LspAccessKind.STATIC : LspAccessKind.INSTANCE;
+	ctx.base_identifier = base.name;
+	ctx.base_location = base.range.start;
+	ctx.base_node = resolve_chain(ctx, chain);
+}
+
+fn bool is_name_token(TokenKind kind) @local {
+	switch (kind) {
+		case IDENT:
+		case TYPE_IDENT:
+		case HASH_IDENT:
+		case AT_IDENT:
+			return true;
+		default:
+			return false;
+	}
+}
+
+<*
+ Read the access chain that ends at the operator in `op_idx`, walking
+ backwards until something that cannot be part of one.
+
+ 'a.b.c' yields [a, b, c]; 'foo().x' yields [foo (a call), x]; and
+ 'bar(a.b' stops at the '(' and yields [a, b], which is what the cursor
+ inside those parentheses is actually working on.
+*>
+fn ChainSegment[] extract_access_chain(Context* ctx, sz op_idx) @local {
+	List{ChainSegment} segments;
+	segments.tinit();
+
+	sz i = op_idx - 1;
+
+	while (i >= 0) {
+		bool is_call = false;
+
+		// A trailing '(...)' or '[...]' belongs to the name in front of it.
+		// Indexing needs no separate flag: raw_type_identifier already
+		// unwraps a slice or array type down to its element.
+		while (i >= 0 && (ctx.tokens[i].kind == RPAREN || ctx.tokens[i].kind == RBRACKET)) {
+			if (ctx.tokens[i].kind == RPAREN) is_call = true;
+
+			sz open = matching_open(ctx, i);
+			if (open < 0) return segments.to_tarray();
+			i = open - 1;
 		}
+
+		if (i < 0) break;
+
+		Token tok = ctx.tokens[i];
+		if (!is_name_token(tok.kind)) break;
+
+		segments.insert_at(0, { .name = tok.value, .kind = tok.kind, .range = tok.range, .is_call = is_call });
+		i--;
+
+		if (i < 0 || (ctx.tokens[i].kind != DOT && ctx.tokens[i].kind != SCOPE)) break;
+		i--;
+	}
+
+	return segments.to_tarray();
+}
+
+<*
+ Index of the bracket that opens the one at `close_idx`, or -1.
+*>
+fn sz matching_open(Context* ctx, sz close_idx) @local {
+	TokenKind close = ctx.tokens[close_idx].kind;
+	TokenKind open  = close == TokenKind.RPAREN ? TokenKind.LPAREN : TokenKind.LBRACKET;
+
+	int depth = 0;
+	for (sz i = close_idx; i >= 0; i--) {
+		TokenKind kind = ctx.tokens[i].kind;
+
+		if (kind == close) {
+			depth++;
+			continue;
+		}
+
+		if (kind == open) {
+			depth--;
+			if (depth == 0) return i;
+		}
+	}
+
+	return -1;
+}
+
+<*
+ The declaration of the type the chain evaluates to, or null when a link
+ cannot be followed.
+
+ This is all the type resolution there is: the analyzer's sema::resolve
+ is a stub and TypeInfo.resolved is never populated, so each hop goes
+ name -> declaration -> written type name -> declaration by hand.
+*>
+fn Node* resolve_chain(Context* ctx, ChainSegment[] chain) {
+	if (chain.len == 0) return null;
+
+	Node* current = resolve_chain_root(ctx, chain[0]);
+
+	for (usz i = 1; i < chain.len && current != null; i++) {
+		current = resolve_member_type(ctx, current, chain[i]);
+	}
+
+	return current;
+}
+
+fn Node* resolve_chain_root(Context* ctx, ChainSegment seg) @local {
+	// 'foo()' stands for whatever foo returns.
+	if (seg.is_call) return return_type_decl(ctx, find_decl(ctx, seg.name, false));
+
+	// A variable shadows a type of the same name, so the scope chain wins.
+	if (ctx.file) {
+		Scope* leaf        = core::find_deepest_scope(ctx.file.root_rt_scope, ctx.location);
+		VariableInfo* info = leaf ? scope::get_variable(leaf, seg.name) : null;
+
+		if (info && info.node && info.node.kind == VAR_DECL) {
+			return type_decl_of(ctx, info.node.as(VarDecl).type);
+		}
+	}
+
+	// Otherwise the name is the type itself, the 'Point' of 'Point::'.
+	return find_decl(ctx, seg.name, true);
+}
+
+<*
+ Follow one '.member' hop from a type declaration.
+*>
+fn Node* resolve_member_type(Context* ctx, Node* type_decl, ChainSegment seg) @local {
+	if (!type_decl || type_decl.kind != STRUCT_DECL) return null;
+
+	// Methods would need a method registry, and the analyzer has none.
+	if (seg.is_call) return null;
+
+	foreach (Node* field_node : type_decl.as(StructDecl).fields) {
+		if (!field_node || field_node.kind != VAR_DECL) continue;
+
+		VarDecl* field = field_node.as(VarDecl);
+		if (!field.name || field.name.text != seg.name) continue;
+
+		return type_decl_of(ctx, field.type);
+	}
+
+	return null;
+}
+
+<*
+ Declaration of the type a written type expression names.
+*>
+fn Node* type_decl_of(Context* ctx, Node* type_expr) @local {
+	if (!type_expr) return null;
+
+	String name = cursor::raw_type_identifier(type_expr) ?? "";
+	if (name.len == 0) return null;
+
+	return find_decl(ctx, name, true);
+}
+
+<*
+ Return type of a function or macro declaration.
+*>
+fn Node* return_type_decl(Context* ctx, Node* callable) @local {
+	if (!callable) return null;
+
+	switch (callable.kind) {
+		case FN_DECL:
+			return type_decl_of(ctx, callable.as(FnDecl).ret_type);
+		case MACRO_DECL:
+			return type_decl_of(ctx, callable.as(MacroDecl).ret_type.get() ?? null);
+		default:
+			return null;
+	}
+}
+
+<*
+ Look a declaration up by bare name, preferring the current module.
+
+ The index is keyed by bare name, and a name like 'Point' is declared in
+ more than one module often enough that taking the first match picks a
+ stdlib type and offers its fields.
+*>
+fn Node* find_decl(Context* ctx, String name, bool want_type) @local {
+	if (name.len == 0) return null;
+
+	String current = ctx.mod ? ctx.mod.name : "";
+	Node* fallback;
+
+	foreach (SymbolRef ref : ctx.session.find_symbols(name)) {
+		if (!ref.node) continue;
+		if (want_type ? !is_type_decl(ref.node) : !is_callable_decl(ref.node)) continue;
+
+		if (current.len > 0 && ref.module_name == current) return ref.node;
+		if (!fallback) fallback = ref.node;
+	}
+
+	return fallback;
+}
+
+fn bool is_callable_decl(Node* node) @local {
+	switch (node.kind) {
+		case FN_DECL:
+		case MACRO_DECL:
+			return true;
+		default:
+			return false;
 	}
 }
 
@@ -80,10 +295,9 @@ fn bool provide_member_access(Context* ctx, List{CompletionItem}* items) {
 fn bool provide_static_access(Context* ctx, List{CompletionItem}* items) {
 	provide_module_paths(ctx, items);
 
-	Node* var_type = resolve_variable_type(ctx, ctx.base_identifier);
-	if (var_type) {
-		log::debug("Injecting reflection properties for instance variable type: %s", var_type.kind);
-		analysis::inject_type_properties(ctx, items, var_type.kind);
+	if (ctx.base_node) {
+		log::debug("Injecting reflection properties for type: %s", ctx.base_node.kind);
+		analysis::inject_type_properties(ctx, items, ctx.base_node.kind);
 		return true;
 	}
 
@@ -124,26 +338,7 @@ fn Node* resolve_variable_type(Context* ctx, String name) {
 	VariableInfo* info = scope::get_variable(leaf, name);
 	if (!info || !info.node || info.node.kind != VAR_DECL) return null;
 
-	VarDecl* decl = info.node.as(VarDecl);
-	if (!decl.type) return null;
-
-	String type_name = cursor::raw_type_identifier(decl.type) ?? "";
-	if (type_name.len == 0) return null;
-
-	// The index is keyed by bare name, and a name like 'Point' is declared
-	// in more than one module often enough that taking the first match
-	// picks a stdlib type and offers its fields. Prefer the current
-	// module's declaration, and only then fall back to any other.
-	String current = ctx.mod ? ctx.mod.name : "";
-	Node* fallback;
-
-	foreach (SymbolRef ref : ctx.session.find_symbols(type_name)) {
-		if (!ref.node || !is_type_decl(ref.node)) continue;
-		if (current.len > 0 && ref.module_name == current) return ref.node;
-		if (!fallback) fallback = ref.node;
-	}
-
-	return fallback;
+	return type_decl_of(ctx, info.node.as(VarDecl).type);
 }
 
 fn bool is_type_decl(Node* node) @local {
@@ -159,20 +354,23 @@ fn bool is_type_decl(Node* node) @local {
 }
 
 <*
- Members reachable through '.' on a variable.
+ Members reachable through '.'.
 
- Only direct fields for now; there is no method registry to draw from,
- and a base whose type does not resolve deliberately produces nothing
- rather than falling back to the global list, which would offer keywords
- and unrelated symbols straight after a dot.
+ The base has already been resolved into ctx.base_node, so this handles
+ 'a.b.c' and 'foo().x' the same way it handles 'p.': whatever the chain
+ evaluated to decides what is offered.
+
+ Only direct fields for now - there is no method registry to draw from -
+ and a base that does not resolve deliberately produces nothing rather
+ than falling back to the global list, which would offer keywords and
+ unrelated symbols straight after a dot.
 *>
 fn bool provide_instance_access(Context* ctx, List{CompletionItem}* items) {
-	Node* type_decl = resolve_variable_type(ctx, ctx.base_identifier);
-	if (!type_decl) return false;
+	if (!ctx.base_node) return false;
 
-	switch (type_decl.kind) {
+	switch (ctx.base_node.kind) {
 		case STRUCT_DECL:
-			collect_struct_fields(ctx, items, type_decl.as(StructDecl));
+			collect_struct_fields(ctx, items, ctx.base_node.as(StructDecl));
 			return true;
 		default:
 			return false;
