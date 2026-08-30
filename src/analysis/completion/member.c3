@@ -377,11 +377,32 @@ fn bool provide_instance_access(Context* ctx, List{CompletionItem}* items) {
 	}
 }
 
+<*
+ True when a declaration is a method: a function or macro bound to a
+ type rather than to its module.
+*>
+fn bool is_method(Node* node) @local {
+	switch (node.kind) {
+		case FN_DECL:
+			return node.as(FnDecl).associated_type != null;
+		case MACRO_DECL:
+			if (try associated = node.as(MacroDecl).associated_type.get()) return associated != null;
+			return false;
+		default:
+			return false;
+	}
+}
+
 fn void collect_module_symbols(Context* ctx, List{CompletionItem}* items, Module* mod) {
 	foreach (Node* node : mod.nodes) {
 		if (!node) continue;
 		if (node.visibility != PUBLIC) continue;
 		if (node.kind == MODULE_DECL || node.kind == IMPORT_DECL) continue;
+
+		// A method reached through its module is not something that can be
+		// written: 'InStream.read' lives in std::io, but 'io::read' is not
+		// a call. It is offered on the instance instead.
+		if (is_method(node)) continue;
 
 		String symbol_name = cursor::spelling(node, tmem) ?? "";
 		if (symbol_name.len == 0) continue;

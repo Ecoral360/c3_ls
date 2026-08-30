@@ -975,3 +975,80 @@ fn void a_dangling_access_does_not_eat_the_next_declaration() => @pool() {
 
 	test::eq(session.by_name.len(), complete.by_name.len());
 }
+// ---------------------------------------------------------------------
+// A module base offers no methods
+// ---------------------------------------------------------------------
+
+const String MODULE_BASE_SRC = `module modbase;
+
+struct Widget
+{
+	int id;
+}
+
+fn int free_function()
+{
+	return 1;
+}
+
+fn int Widget.method(&self)
+{
+	return self.id;
+}
+
+macro @free_macro()
+{
+	return 1;
+}
+`;
+
+const String MODULE_USER_SRC = `module modbase_user;
+
+import modbase;
+
+fn void go()
+{
+	PLACEHOLDER
+}
+`;
+
+<*
+ A method belongs to its type, not to the module it was written in.
+ 'modbase::method' is not something that can be written, so offering it
+ after a module qualifier is pure noise - it was 86 of the 174 entries
+ behind 'io::'.
+*>
+fn void module_base_offers_no_methods() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	session.set_file("/virtual/modbase.c3", MODULE_BASE_SRC);
+
+	String text = MODULE_USER_SRC.treplace("PLACEHOLDER", "modbase::");
+	session.set_file("/virtual/modbase_user.c3", text);
+	session.rebuild_index();
+	session.analyze("/virtual/modbase_user.c3");
+
+	Context ctx = test_support::make_completion_context(
+		&session,
+		"/virtual/modbase_user.c3",
+		test_support::loc_after(text, "modbase::")
+	);
+	test::eq(ctx.access, LspAccessKind.STATIC);
+
+	List{CompletionItem} items;
+	items.tinit();
+	provide_member_access(&ctx, &items);
+
+	List{String} labels;
+	labels.tinit();
+	foreach (CompletionItem item : items) labels.push(item.label);
+	String[] offered = labels.to_tarray();
+
+	test::@check(test_support::has(offered, "free_function"), "a free function is missing: %s", offered);
+	test::@check(test_support::has(offered, "@free_macro"), "a free macro is missing: %s", offered);
+	test::@check(test_support::has(offered, "Widget"), "a type is missing: %s", offered);
+
+	test::@check(!test_support::has(offered, "method"), "a method was offered behind a module: %s", offered);
+}
