@@ -19,6 +19,7 @@ struct CliArgs {
 fn int main(String[] args) {
 	CliArgs cli;
 
+	bool help;
 	sz? result = argparse::@parse(
 		args,
 		"",
@@ -49,6 +50,9 @@ fn int main(String[] args) {
 		"send-crash-reports",
 		"Send crash reports",
 		&cli.send_crash_reports,
+		"h*",
+		"help*",
+		&help
 	);
 
 	if (catch err = result) {
