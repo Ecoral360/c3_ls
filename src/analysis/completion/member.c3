@@ -14,6 +14,14 @@ import std::collections::map;
 import uri;
 
 <*
+ The completion context reduced to what type resolution needs, so
+ completion and goto definition resolve through the same code.
+*>
+fn TypeContext type_context(Context* ctx) {
+	return { .session = ctx.session, .file = ctx.file, .mod = ctx.mod, .location = ctx.location };
+}
+
+<*
  One link of a member access chain, as written in the source.
 
  `is_call` marks a name that was followed by a balanced '(...)', so it
@@ -173,7 +181,10 @@ fn Node* resolve_chain(Context* ctx, ChainSegment[] chain) {
 
 fn Node* resolve_chain_root(Context* ctx, ChainSegment seg) @local {
 	// 'foo()' stands for whatever foo returns.
-	if (seg.is_call) return return_type_decl(ctx, find_decl(ctx, seg.name, false));
+	if (seg.is_call) return analysis::return_type_decl(
+		type_context(ctx),
+		analysis::find_decl(type_context(ctx), seg.name, false)
+	);
 
 	// A variable shadows a type of the same name, so the scope chain wins.
 	if (ctx.file) {
@@ -181,22 +192,29 @@ fn Node* resolve_chain_root(Context* ctx, ChainSegment seg) @local {
 		VariableInfo* info = leaf ? scope::get_variable(leaf, seg.name) : null;
 
 		if (info && info.node && info.node.kind == VAR_DECL) {
-			return type_decl_of(ctx, info.node.as(VarDecl).type);
+			return analysis::type_decl_of(type_context(ctx), info.node.as(VarDecl).type);
 		}
 	}
 
 	// Otherwise the name is the type itself, the 'Point' of 'Point::'.
-	return find_decl(ctx, seg.name, true);
+	return analysis::find_decl(type_context(ctx), seg.name, true);
 }
 
 <*
  Follow one '.member' hop from a type declaration.
 *>
 fn Node* resolve_member_type(Context* ctx, Node* type_decl, ChainSegment seg) @local {
-	if (!type_decl || type_decl.kind != STRUCT_DECL) return null;
+	if (!type_decl) return null;
 
-	// Methods would need a method registry, and the analyzer has none.
-	if (seg.is_call) return null;
+	// 'o.method().x' - the hop is through what the method returns.
+	if (seg.is_call) {
+		return analysis::return_type_decl(
+			type_context(ctx),
+			analysis::find_method(type_context(ctx), type_decl, seg.name)
+		);
+	}
+
+	if (type_decl.kind != STRUCT_DECL) return null;
 
 	foreach (Node* field_node : type_decl.as(StructDecl).fields) {
 		if (!field_node || field_node.kind != VAR_DECL) continue;
@@ -204,73 +222,12 @@ fn Node* resolve_member_type(Context* ctx, Node* type_decl, ChainSegment seg) @l
 		VarDecl* field = field_node.as(VarDecl);
 		if (!field.name || field.name.text != seg.name) continue;
 
-		return type_decl_of(ctx, field.type);
+		return analysis::type_decl_of(type_context(ctx), field.type);
 	}
 
 	return null;
 }
 
-<*
- Declaration of the type a written type expression names.
-*>
-fn Node* type_decl_of(Context* ctx, Node* type_expr) @local {
-	if (!type_expr) return null;
-
-	String name = cursor::raw_type_identifier(type_expr) ?? "";
-	if (name.len == 0) return null;
-
-	return find_decl(ctx, name, true);
-}
-
-<*
- Return type of a function or macro declaration.
-*>
-fn Node* return_type_decl(Context* ctx, Node* callable) @local {
-	if (!callable) return null;
-
-	switch (callable.kind) {
-		case FN_DECL:
-			return type_decl_of(ctx, callable.as(FnDecl).ret_type);
-		case MACRO_DECL:
-			return type_decl_of(ctx, callable.as(MacroDecl).ret_type.get() ?? null);
-		default:
-			return null;
-	}
-}
-
-<*
- Look a declaration up by bare name, preferring the current module.
-
- The index is keyed by bare name, and a name like 'Point' is declared in
- more than one module often enough that taking the first match picks a
- stdlib type and offers its fields.
-*>
-fn Node* find_decl(Context* ctx, String name, bool want_type) @local {
-	if (name.len == 0) return null;
-
-	String current = ctx.mod ? ctx.mod.name : "";
-	Node* fallback;
-
-	foreach (SymbolRef ref : ctx.session.find_symbols(name)) {
-		if (!ref.node) continue;
-		if (want_type ? !is_type_decl(ref.node) : !is_callable_decl(ref.node)) continue;
-
-		if (current.len > 0 && ref.module_name == current) return ref.node;
-		if (!fallback) fallback = ref.node;
-	}
-
-	return fallback;
-}
-
-fn bool is_callable_decl(Node* node) @local {
-	switch (node.kind) {
-		case FN_DECL:
-		case MACRO_DECL:
-			return true;
-		default:
-			return false;
-	}
-}
 
 <*
  @returns "true if this consumed the completion (context locked to member access)"
@@ -330,68 +287,37 @@ fn bool provide_static_access(Context* ctx, List{CompletionItem}* items) {
  keyed by bare name, so that is left until the analyzer can answer it.
 *>
 fn Node* resolve_variable_type(Context* ctx, String name) {
-	if (!ctx.file || name.len == 0) return null;
-
-	Scope* leaf = core::find_deepest_scope(ctx.file.root_rt_scope, ctx.location);
-	if (!leaf) return null;
-
-	VariableInfo* info = scope::get_variable(leaf, name);
-	if (!info || !info.node || info.node.kind != VAR_DECL) return null;
-
-	return type_decl_of(ctx, info.node.as(VarDecl).type);
+	return analysis::variable_type(type_context(ctx), name);
 }
 
-fn bool is_type_decl(Node* node) @local {
-	switch (node.kind) {
-		case STRUCT_DECL:
-		case ENUM_DECL:
-		case TYPEDEF_DECL:
-		case INTERFACE_DECL:
-			return true;
-		default:
-			return false;
-	}
-}
 
-<*
- Members reachable through '.'.
-
- The base has already been resolved into ctx.base_node, so this handles
- 'a.b.c' and 'foo().x' the same way it handles 'p.': whatever the chain
- evaluated to decides what is offered.
-
- Only direct fields for now - there is no method registry to draw from -
- and a base that does not resolve deliberately produces nothing rather
- than falling back to the global list, which would offer keywords and
- unrelated symbols straight after a dot.
-*>
 fn bool provide_instance_access(Context* ctx, List{CompletionItem}* items) {
 	if (!ctx.base_node) return false;
 
-	switch (ctx.base_node.kind) {
-		case STRUCT_DECL:
-			collect_struct_fields(ctx, items, ctx.base_node.as(StructDecl));
-			return true;
-		default:
-			return false;
+	if (ctx.base_node.kind == STRUCT_DECL) {
+		collect_struct_fields(ctx, items, ctx.base_node.as(StructDecl));
+	}
+
+	// An enum or a typedef has no fields but can still carry methods.
+	collect_methods_for_type(ctx, items, ctx.base_node);
+	return true;
+}
+
+fn void collect_methods_for_type(Context* ctx, List{CompletionItem}* items, Node* type_decl) {
+	String type_name = cursor::spelling(type_decl, tmem) ?? "";
+	if (type_name.len == 0) return;
+
+	foreach (SymbolRef ref : ctx.session.methods_for(type_name)) {
+		if (!analysis::reachable_method(type_context(ctx), type_decl, ref)) continue;
+
+		String name = cursor::spelling(ref.node, tmem) ?? "";
+		if (name.len == 0) continue;
+		if (!analysis::matches_prefix(ctx, name)) continue;
+
+		add_symbol_completion(ctx, items, name, ref.node, type_name);
 	}
 }
 
-<*
- True when a declaration is a method: a function or macro bound to a
- type rather than to its module.
-*>
-fn bool is_method(Node* node) @local {
-	switch (node.kind) {
-		case FN_DECL:
-			return node.as(FnDecl).associated_type != null;
-		case MACRO_DECL:
-			if (try associated = node.as(MacroDecl).associated_type.get()) return associated != null;
-			return false;
-		default:
-			return false;
-	}
-}
 
 fn void collect_module_symbols(Context* ctx, List{CompletionItem}* items, Module* mod) {
 	foreach (Node* node : mod.nodes) {
@@ -402,7 +328,7 @@ fn void collect_module_symbols(Context* ctx, List{CompletionItem}* items, Module
 		// A method reached through its module is not something that can be
 		// written: 'InStream.read' lives in std::io, but 'io::read' is not
 		// a call. It is offered on the instance instead.
-		if (is_method(node)) continue;
+		if (core::method_target(node).len > 0) continue;
 
 		String symbol_name = cursor::spelling(node, tmem) ?? "";
 		if (symbol_name.len == 0) continue;

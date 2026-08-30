@@ -80,11 +80,14 @@ struct FileEntry {
 struct IndexedName {
 	String name;
 	String qualified;
+	<*
+	 Bare name of the type a method is bound to, or empty for anything
+	 **that is not a method** -> this is the key it occupies in `by_method`.
+	*>
+	String method_of;
 }
 
 <*
- Replaces the analyzer's removed `Workspace`.
-
  Owns the AnalyzerContext plus the per-file state, symbol index and
  diagnostics that the analyzer stopped tracking.
 *>
@@ -97,6 +100,14 @@ struct LspSession {
 	DynamicArenaAllocator index_arena;
 	HashMap{String, List{SymbolRef}} by_name;
 	HashMap{String, List{SymbolRef}} by_module;
+	<*
+	 Methods keyed by the bare name of the type they are bound to.
+
+	 The analyzer has no method registry, and a method is not reachable
+	 through its module, so this is the only way to answer "what can be
+	 called on a value of this type"
+	*>
+	HashMap{String, List{SymbolRef}} by_method;
 	HashMap{ulong, FileEntry*} node_owner;
 
 	DynamicArenaAllocator diag_arena;
@@ -128,6 +139,7 @@ fn void LspSession.init(&self, Allocator allocator) {
 	self.index_arena.init(allocator, ARENA_PAGE_SIZE);
 	self.by_name.init(allocator, 256);
 	self.by_module.init(allocator, 256);
+	self.by_method.init(allocator, 256);
 	self.node_owner.init(allocator, 256);
 
 	self.diag_arena.init(allocator, ARENA_PAGE_SIZE);
@@ -163,6 +175,11 @@ fn void LspSession.free(&self) {
 		refs.free();
 	};
 	self.by_module.free();
+
+	self.by_method.@each(; String name, List{SymbolRef} refs) {
+		refs.free();
+	};
+	self.by_method.free();
 	self.node_owner.free();
 	self.index_arena.free();
 
@@ -305,6 +322,7 @@ fn void FileEntry.clear_index_records(&self, Allocator allocator) {
 	foreach (IndexedName indexed : self.index_names) {
 		indexed.name.free(allocator);
 		indexed.qualified.free(allocator);
+		if (indexed.method_of.len > 0) indexed.method_of.free(allocator);
 	}
 
 	self.index_modules.clear();
@@ -339,6 +357,7 @@ fn void LspSession.unindex(&self, String path) {
 	foreach (IndexedName indexed : entry.index_names) {
 		self.drop_symbol(&self.by_name, indexed.name, entry);
 		self.drop_symbol(&self.by_module, indexed.qualified, entry);
+		if (indexed.method_of.len > 0) self.drop_symbol(&self.by_method, indexed.method_of, entry);
 	}
 
 	foreach (ulong id : entry.index_node_ids) {
@@ -353,15 +372,9 @@ fn void LspSession.unindex(&self, String path) {
 			(void)module_ptr.node_map.remove((NodeID)id);
 		}
 
-		// One pass per module rather than a removal per node: List has no
-		// remove-by-value and the nodes of one file are interleaved with
-		// every other file that declares into the same module.
 		retain_registered(&module_ptr.nodes, &module_ptr.node_map);
 		retain_registered_decls(&module_ptr.module_decls, &module_ptr.node_map);
 
-		// A module with nothing left in it should stop being offered by
-		// import completion. Its arena memory stays; that is bounded by the
-		// workspace, not by how often files are edited.
 		if (module_ptr.nodes.is_empty()) (void)self.ctx.modules.remove(mod_name);
 	}
 
@@ -473,13 +486,17 @@ fn void LspSession.index(&self, String path) => @pool() {
 		self.push_symbol(&self.by_name, name, ref);
 		self.push_symbol(&self.by_module, qualified, ref);
 
-		// The keys are recorded so unindex can find these two buckets
-		// again. Copies, because the module name lives in the index arena
-		// and `name` came from the file arena that set_file will reset.
+		String method_of = method_target(node);
+		if (method_of.len > 0) self.push_symbol(&self.by_method, method_of, ref);
+
+		// The keys are recorded so unindex can find these buckets again.
+		// Copies, because the module name lives in the index arena and the
+		// rest came from the file arena that set_file will reset.
 		entry.index_names.push(
 			{
 				.name = name.copy(self.allocator),
 				.qualified = qualified.copy(self.allocator),
+				.method_of = method_of.len > 0 ? method_of.copy(self.allocator) : "",
 			}
 		);
 	}
@@ -615,6 +632,38 @@ fn FileEntry* LspSession.entry_for_node(&self, Node* node) {
 *>
 fn List{SymbolRef} LspSession.find_symbols(&self, String name) {
 	return self.by_name.get(name) ?? (List{SymbolRef}) { };
+}
+
+<*
+ Bare name of the type a function or macro is bound to, or empty when it
+ is not a method.
+
+ The single definition of what counts as a method: a declaration with an
+ associated type is reachable on a value of that type, and nowhere else -
+ not through its module, which is why module completion filters on this
+ too.
+*>
+fn String method_target(Node* node) {
+	Node* associated;
+
+	switch (node.kind) {
+		case FN_DECL:
+			associated = node.as(FnDecl).associated_type;
+		case MACRO_DECL:
+			associated = node.as(MacroDecl).associated_type.get() ?? null;
+		default:
+			return "";
+	}
+
+	if (!associated) return "";
+	return cursor::raw_type_identifier(associated) ?? "";
+}
+
+<*
+ Every method bound to the type named `type_name`.
+*>
+fn List{SymbolRef} LspSession.methods_for(&self, String type_name) {
+	return self.by_method.get(type_name) ?? (List{SymbolRef}) { };
 }
 
 <*

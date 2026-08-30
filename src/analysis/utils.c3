@@ -564,12 +564,60 @@ fn String path_prefix(Node* path_node) @local {
 }
 
 <*
- Every declaration a written reference can mean.
+ The single declaration a member reference resolves to, wrapped so it
+ reads like any other lookup result.
+*>
+fn List{SymbolRef} member_refs(LspSession* session, MemberResolution member) @local {
+	List{SymbolRef} refs;
+	refs.tinit();
+
+	if (!member.decl) return refs;
+
+	// A method is a top level declaration and the index knows where it came
+	// from. A field is not, so its type answers for it.
+	Node* anchor = session.entry_for_node(member.decl) ? member.decl : member.type_decl;
+
+	FileEntry* owner = session.entry_for_node(anchor);
+	Module* mod      = session.module_of(anchor);
+
+	refs.push({ .node = member.decl, .module_name = mod ? mod.name : "", .owner = owner });
+	return refs;
+}
+
+<*
+ Every declaration a reference at `loc` can mean.
+
+ A member access is resolved through the type of what is on its left, so
+ 'p.magnitude' is the one method on Point rather than every 'magnitude'
+ in the workspace. Anything else falls back to the name, qualified by its
+ module when one was written.
+*>
+fn List{SymbolRef} lookup_reference(LspSession* session, String path, Location loc, Node* node) {
+	FileEntry* entry = session.entry(path);
+	Module* current  = session.module_for_file(path);
+
+	if (entry && entry.sf) {
+		TypeContext types = {
+			.session = session,
+			.file = entry,
+			.mod = current,
+			.location = loc,
+		};
+
+		MemberResolution member = member_at(types, entry.sf, loc);
+		if (member.decl) return member_refs(session, member);
+	}
+
+	return lookup_symbol(session, current, qualified_symbol_at(node, loc));
+}
+
+<*
+ Every declaration a written name can mean.
 
  A bare name matches everywhere it is declared, which is the best that
- can be done without type resolution. A qualified one is narrowed to the
- module it names, so `string::tformat` stops offering every tformat in
- the workspace.
+ can be done for one. A qualified name is narrowed to the module it
+ names, so `string::tformat` stops offering every tformat in the
+ workspace.
 *>
 fn List{SymbolRef} lookup_symbol(LspSession* session, Module* current, QualifiedSymbol symbol) {
 	if (symbol.name.len == 0) return { };

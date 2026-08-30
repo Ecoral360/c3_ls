@@ -364,7 +364,7 @@ fn int member_labels(LspSession* session, String src, String typed) {
 	String text = src.treplace("PLACEHOLDER", typed);
 	load(session, "/virtual/typed.c3", text);
 
-	Context ctx = make_completion_context(session, "/virtual/typed.c3", loc_after(text, typed));
+	Context ctx = make_completion_context(session, "/virtual/typed.c3", placeholder_cursor(src, text, typed));
 
 	List{CompletionItem} items;
 	items.tinit();
@@ -394,7 +394,7 @@ fn String[] member_labels_of(LspSession* session, String src, String typed) {
 	String text = src.treplace("PLACEHOLDER", typed);
 	load(session, "/virtual/typed.c3", text);
 
-	Context ctx = make_completion_context(session, "/virtual/typed.c3", loc_after(text, typed));
+	Context ctx = make_completion_context(session, "/virtual/typed.c3", placeholder_cursor(src, text, typed));
 
 	List{CompletionItem} items;
 	items.tinit();
@@ -437,4 +437,38 @@ fn void setup_qualified(LspSession* session, String path, String src) {
 	session.set_file(path, src);
 	session.rebuild_index();
 	session.analyze(path);
+}
+
+<*
+ Cursor at the end of the text that replaced PLACEHOLDER.
+
+ Derived from where the placeholder stood rather than by searching for
+ `typed`: a short fragment like "f." also occurs inside "self.".
+*>
+fn Location placeholder_cursor(String src, String text, String typed) {
+	sz placeholder = src.index_of("PLACEHOLDER") ?? 0;
+	return offset_to_location(text, placeholder + typed.len);
+}
+
+const String MEMBER_PATH = "/virtual/members.c3";
+
+<*
+ Load a member-access fixture next to a rival module declaring the same
+ names, so a bare lookup is genuinely ambiguous.
+
+ @param [&inout] session
+*>
+fn void setup_members(LspSession* session, String rival_src, String member_src) {
+	session.set_file("/virtual/rival.c3", rival_src);
+	session.set_file(MEMBER_PATH, member_src);
+	session.rebuild_index();
+	session.analyze(MEMBER_PATH);
+}
+
+fn TypeContext member_types(LspSession* session) {
+	return {
+		.session = session,
+		.file = session.entry(MEMBER_PATH),
+		.mod = session.module_for_file(MEMBER_PATH),
+	};
 }

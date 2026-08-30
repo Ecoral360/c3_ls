@@ -33,24 +33,12 @@ fn LspLocation[]? goto_definition(LspProject* project, Uri uri, LspPosition pos)
 
 	log::info("Kind: %s", node.kind.description);
 
-	QualifiedSymbol symbol = analysis::qualified_symbol_at(node, loc);
-	if (symbol.name.len == 0) {
-		log::error("No valid symbol targeted at this offset context.");
-		return { };
-	}
-
-	log::info("symbol: %s%s%s", symbol.path, symbol.path.len > 0 ? "::" : "", symbol.name);
+	List{SymbolRef} entries = analysis::lookup_reference(&project.session, uri.path, loc, node);
 
 	List{LspLocation} locations;
 	locations.tinit();
-	List{SymbolRef} entries = analysis::lookup_symbol(
-		&project.session,
-		project.session.module_for_file(uri.path),
-		symbol
-	);
-
 	if (entries.len() <= 0) {
-		log::error("No entries found for symbol: %s", symbol.name);
+		log::error("No entries found at %s:%s", loc.line + 1, loc.column + 1);
 	}
 
 	foreach (SymbolRef ref : entries) {

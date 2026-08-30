@@ -62,29 +62,35 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 	Node* node = cursor::node(&sf.ast, loc).node;
 	if (!node || !node.is_valid()) return "";
 
-	QualifiedSymbol symbol = analysis::qualified_symbol_at(node, loc);
+	List{SymbolRef} origins = analysis::lookup_reference(&project.session, uri.path, loc, node);
 
-	if (symbol.name.len == 0) {
+	if (origins.is_empty()) {
 		log::error("No valid symbol targeted at this offset context.");
 		return "";
 	}
-
-	log::info("symbol: %s%s%s", symbol.path, symbol.path.len > 0 ? "::" : "", symbol.name);
-
-	List{SymbolRef} origins = analysis::lookup_symbol(
-		&project.session,
-		project.session.module_for_file(uri.path),
-		symbol
-	);
 
 	List{String} output;
 
 	output.tinit();
 
 	foreach (origin : origins) {
-		ContractDecl* contract = cursor::contract(origin.node)!;
-		if (!contract) continue;
-		output.push(origin.owner.lines.slice(contract.node.range));
+		if (!origin.node || !origin.owner) continue;
+
+		String signature = project.session.node_signature_text(origin.node);
+		if (signature.len == 0) continue;
+
+		// The signature is the part that is always there. A doc comment
+		// gets appended when the declaration has one; requiring one meant
+		// hovering anything undocumented - most methods included - showed
+		// nothing at all.
+		if (try ContractDecl* contract = cursor::contract(origin.node)) {
+			if (contract && contract.comment && contract.comment.text.len > 0) {
+				output.push(string::tformat("%s\n\n%s", signature, contract.comment.text.trim()));
+				continue;
+			}
+		}
+
+		output.push(signature);
 	}
 
 	return string::tjoin(output.array_view(), "\n---\n");

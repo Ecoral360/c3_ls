@@ -269,3 +269,185 @@ fn void lookup_symbol_narrows_to_the_named_module() => @pool() {
 
 	test::@check(lookup_symbol(&session, current, { .name = "" }).is_empty());
 }
+// ---------------------------------------------------------------------
+// Member references
+// ---------------------------------------------------------------------
+
+const String MEMBER_SRC = `module members;
+
+struct Inner
+{
+	int v;
+}
+
+struct Holder
+{
+	int id;
+}
+
+fn Inner Holder.get_inner(&self)
+{
+	Inner i;
+	return i;
+}
+
+fn int Inner.value(&self)
+{
+	return self.v;
+}
+
+fn void go()
+{
+	Holder h;
+	int a = h.get_inner().value();
+	int b = h.id;
+	int c = unknown_var.missing;
+}
+`;
+
+<*
+ A rival module declaring the same names, so a bare lookup really is
+ ambiguous: without resolving through the base type, 'h.get_inner' would
+ answer with both.
+*>
+const String MEMBER_RIVAL_SRC = `module members_rival;
+
+struct Holder
+{
+	int id;
+}
+
+fn int Holder.get_inner(&self)
+{
+	return 0;
+}
+
+fn int Holder.value(&self)
+{
+	return 0;
+}
+`;
+
+<*
+ A member reference means the member of the type on its left, not every
+ declaration that happens to share the name. Both modules here declare
+ 'get_inner' and 'value'.
+*>
+fn void member_at_resolves_through_the_base_type() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+	test_support::setup_members(&session, MEMBER_RIVAL_SRC, MEMBER_SRC);
+
+	FileEntry* entry = session.entry(test_support::MEMBER_PATH);
+
+	// The bare name is genuinely ambiguous.
+	test::eq(session.find_symbols("get_inner").len(), 2);
+	test::eq(session.find_symbols("value").len(), 2);
+
+	TypeContext types = test_support::member_types(&session);
+	types.location = test_support::loc_of(MEMBER_SRC, "get_inner().value()");
+
+	MemberResolution method = member_at(types, entry.sf, types.location);
+	test::ne(method.decl, null);
+	test::eq(method.decl, test_support::find_top_level(&session, test_support::MEMBER_PATH, "get_inner"));
+	test::eq(method.type_decl, test_support::find_top_level(&session, test_support::MEMBER_PATH, "Holder"));
+}
+
+<*
+ 'h.get_inner().value' - the base of the second access is a call, so its
+ return type has to be resolved before the member can be found on it.
+*>
+fn void member_at_follows_a_method_call() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+	test_support::setup_members(&session, MEMBER_RIVAL_SRC, MEMBER_SRC);
+
+	FileEntry* entry = session.entry(test_support::MEMBER_PATH);
+
+	TypeContext types = test_support::member_types(&session);
+	types.location = test_support::loc_of(MEMBER_SRC, "value()");
+
+	MemberResolution chained = member_at(types, entry.sf, types.location);
+	test::ne(chained.decl, null);
+	test::eq(chained.decl, test_support::find_top_level(&session, test_support::MEMBER_PATH, "value"));
+	test::eq(chained.type_decl, test_support::find_top_level(&session, test_support::MEMBER_PATH, "Inner"));
+}
+
+<*
+ Fields resolve the same way, and carry their type declaration with them:
+ a field is not a top level statement, so the index cannot say on its own
+ which file it came from.
+*>
+fn void member_at_resolves_fields() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+	test_support::setup_members(&session, MEMBER_RIVAL_SRC, MEMBER_SRC);
+
+	FileEntry* entry = session.entry(test_support::MEMBER_PATH);
+
+	TypeContext types = test_support::member_types(&session);
+	types.location = test_support::loc_after(MEMBER_SRC, "int b = h.");
+
+	MemberResolution field = member_at(types, entry.sf, types.location);
+	test::ne(field.decl, null);
+	test::eq(field.decl.kind, NodeKind.VAR_DECL);
+	test::eq(field.type_decl, test_support::find_top_level(&session, test_support::MEMBER_PATH, "Holder"));
+
+	// The index knows nothing about the field itself, which is why the
+	// type has to answer for it.
+	test::eq(session.entry_for_node(field.decl), null);
+	test::eq(session.entry_for_node(field.type_decl), entry);
+}
+
+<*
+ A cursor that is not on a member, or a base that does not resolve, has
+ to leave the caller free to fall back to a plain name lookup.
+*>
+fn void member_at_declines_when_it_cannot_resolve() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+	test_support::setup_members(&session, MEMBER_RIVAL_SRC, MEMBER_SRC);
+
+	FileEntry* entry  = session.entry(test_support::MEMBER_PATH);
+	TypeContext types = test_support::member_types(&session);
+
+	// On the 'go' declaration, nowhere near a member access.
+	types.location = test_support::loc_of(MEMBER_SRC, "go()");
+	test::eq(member_at(types, entry.sf, types.location).decl, null);
+
+	// On a member whose base does not resolve to any type.
+	types.location = test_support::loc_after(MEMBER_SRC, "unknown_var.");
+	test::eq(member_at(types, entry.sf, types.location).decl, null);
+}
+<*
+ The path goto definition and hover actually take.
+
+ Both used to answer a member reference with every declaration sharing
+ the name; resolving through the base type makes it exactly one.
+*>
+fn void lookup_reference_answers_with_the_resolved_member() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+	test_support::setup_members(&session, MEMBER_RIVAL_SRC, MEMBER_SRC);
+
+	FileEntry* entry = session.entry(test_support::MEMBER_PATH);
+
+	Location loc = test_support::loc_of(MEMBER_SRC, "get_inner().value()");
+	Node* node   = cursor::node(&entry.sf.ast, loc).node;
+
+	List{SymbolRef} refs = lookup_reference(&session, test_support::MEMBER_PATH, loc, node);
+	test::eq(refs.len(), 1);
+	test::eq(refs[0].node, test_support::find_top_level(&session, test_support::MEMBER_PATH, "get_inner"));
+	test::eq(refs[0].owner, entry);
+	test::eq(refs[0].module_name, "members");
+
+	// A plain name still answers with everything that declares it.
+	Location bare   = test_support::loc_of(MEMBER_SRC, "go()");
+	Node* bare_node = cursor::node(&entry.sf.ast, bare).node;
+	test::@check(!lookup_reference(&session, test_support::MEMBER_PATH, bare, bare_node).is_empty());
+}

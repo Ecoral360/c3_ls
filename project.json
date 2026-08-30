@@ -13,7 +13,7 @@
     "lib/"
   ],
   "langrev": "1",
-  "opt": "O0",
+  "opt": "O2",
   "output": "build",
   "sources": [
     "src/**"

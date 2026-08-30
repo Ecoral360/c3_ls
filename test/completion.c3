@@ -1052,3 +1052,170 @@ fn void module_base_offers_no_methods() => @pool() {
 
 	test::@check(!test_support::has(offered, "method"), "a method was offered behind a module: %s", offered);
 }
+// ---------------------------------------------------------------------
+// Methods on instance access
+// ---------------------------------------------------------------------
+
+const String METHOD_SRC = `module methods;
+
+struct Inner
+{
+	int v;
+	int w;
+}
+
+struct Holder
+{
+	int id;
+}
+
+enum Flag
+{
+	ON,
+	OFF,
+}
+
+fn Inner Holder.get_inner(&self)
+{
+	Inner i;
+	return i;
+}
+
+fn void Holder.reset(&self)
+{
+	self.id = 0;
+}
+
+macro Holder.@doubled(&self)
+{
+	return 2;
+}
+
+fn int Inner.value(&self)
+{
+	return self.v;
+}
+
+fn bool Flag.is_on(&self)
+{
+	return true;
+}
+
+fn void go()
+{
+	Holder h;
+	Inner i;
+	Flag f;
+	PLACEHOLDER
+}
+`;
+
+<*
+ The analyzer has no method registry, so the session keeps a reverse
+ index from a type's bare name to the methods bound to it. Without it a
+ dot offered fields only, which is most of a type's surface missing.
+*>
+fn void instance_access_offers_methods() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] offered = test_support::member_labels_of(&session, METHOD_SRC, "h.");
+
+	test::@check(test_support::has(offered, "id"), "the field is missing: %s", offered);
+	test::@check(test_support::has(offered, "get_inner"), "a method is missing: %s", offered);
+	test::@check(test_support::has(offered, "reset"), "a method is missing: %s", offered);
+	test::@check(test_support::has(offered, "@doubled"), "a macro method is missing: %s", offered);
+
+	// Inner's methods belong to Inner, not to Holder.
+	test::@check(!test_support::has(offered, "value"), "another type's method leaked in: %s", offered);
+
+	// Typing narrows methods the same way it narrows fields.
+	test::eq(test_support::member_labels_of(&session, METHOD_SRC, "h.res").len, 1);
+}
+
+<*
+ An enum has no fields, but it can still carry methods, so the dot has to
+ answer for it rather than declining.
+*>
+fn void instance_access_offers_methods_without_fields() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] offered = test_support::member_labels_of(&session, METHOD_SRC, "f.");
+	test::eq(offered.len, 1);
+	test::@check(test_support::has(offered, "is_on"), "got %s", offered);
+}
+
+<*
+ 'h.get_inner().' - the hop is through what the method returns, which
+ needs the method found before its return type can be read.
+*>
+fn void chain_follows_method_call_results() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] offered = test_support::member_labels_of(&session, METHOD_SRC, "h.get_inner().");
+	test::@check(test_support::has(offered, "v"), "the returned type's field is missing: %s", offered);
+	test::@check(test_support::has(offered, "value"), "the returned type's method is missing: %s", offered);
+
+	test::eq(test_support::member_labels_of(&session, METHOD_SRC, "h.get_inner().val").len, 1);
+
+	// A method that does not exist resolves to nothing.
+	test::eq(test_support::member_labels_of(&session, METHOD_SRC, "h.nope().").len, 0);
+}
+
+const String RIVAL_SRC = `module rival;
+
+struct Holder
+{
+	int other;
+}
+
+fn void Holder.rival_only(&self)
+{
+	return;
+}
+`;
+
+<*
+ The method index is keyed by the bare type name, and 'Holder' here is
+ declared in two modules. A method reaches a value only if it sits beside
+ that declaration of the type, or in the module doing the extending.
+*>
+fn void methods_do_not_leak_across_modules() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	session.set_file("/virtual/rival.c3", RIVAL_SRC);
+
+	String text = METHOD_SRC.treplace("PLACEHOLDER", "h.");
+	session.set_file("/virtual/typed.c3", text);
+	session.rebuild_index();
+	session.analyze("/virtual/typed.c3");
+
+	Context ctx = test_support::make_completion_context(
+		&session,
+		"/virtual/typed.c3",
+		test_support::loc_after(text, "h.")
+	);
+
+	List{CompletionItem} items;
+	items.tinit();
+	provide_member_access(&ctx, &items);
+
+	List{String} labels;
+	labels.tinit();
+	foreach (CompletionItem item : items) labels.push(item.label);
+	String[] offered = labels.to_tarray();
+
+	test::@check(test_support::has(offered, "reset"), "the type's own method is missing: %s", offered);
+	test::@check(
+		!test_support::has(offered, "rival_only"),
+		"a method on another module's same named type leaked in: %s",
+		offered
+	);
+}
