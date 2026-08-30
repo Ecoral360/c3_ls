@@ -438,7 +438,7 @@ fn void lookup_reference_answers_with_the_resolved_member() => @pool() {
 	FileEntry* entry = session.entry(test_support::MEMBER_PATH);
 
 	Location loc = test_support::loc_of(MEMBER_SRC, "get_inner().value()");
-	Node* node   = cursor::node(&entry.sf.ast, loc).node;
+	Node* node   = cursor::node_entry(&entry.sf.ast, loc).node;
 
 	List{SymbolRef} refs = lookup_reference(&session, test_support::MEMBER_PATH, loc, node);
 	test::eq(refs.len(), 1);
@@ -448,6 +448,6 @@ fn void lookup_reference_answers_with_the_resolved_member() => @pool() {
 
 	// A plain name still answers with everything that declares it.
 	Location bare   = test_support::loc_of(MEMBER_SRC, "go()");
-	Node* bare_node = cursor::node(&entry.sf.ast, bare).node;
+	Node* bare_node = cursor::node_entry(&entry.sf.ast, bare).node;
 	test::@check(!lookup_reference(&session, test_support::MEMBER_PATH, bare, bare_node).is_empty());
 }

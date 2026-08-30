@@ -327,7 +327,8 @@ fn void LspProject.process_libs(&self) {
 						if (catch cache_root) continue;
 						Path? cache_target_dir = cache_root.tappend(dep_name);
 						if (catch cache_target_dir) continue;
-						if (catch cache::is_library_outdated(dep_name, cache_target_dir, lib_path)) {
+						bool outdated = cache::is_library_outdated(dep_name, cache_target_dir, lib_path) ?? true;
+						if (outdated) {
 							log::info("Cache is stale or missing for %s. Extracting...", dep_name);
 
 							if (path::exists(cache_target_dir)) {
@@ -354,7 +355,7 @@ fn void LspProject.process_libs(&self) {
 				}
 
 
-				String[] paths = utils::find_source_files(tmem, lib_path);
+				String[] paths = utils::find_source_files(tmem, scan_target);
 
 				foreach (matched : paths) {
 					log::info("Found internal library source: %s", matched);

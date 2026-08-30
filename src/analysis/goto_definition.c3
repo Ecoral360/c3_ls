@@ -25,7 +25,7 @@ fn LspLocation[]? goto_definition(LspProject* project, Uri uri, LspPosition pos)
 		return { };
 	}
 
-	Node* node = cursor::node(&entry.sf.ast, loc).node;
+	Node* node = cursor::node_entry(&entry.sf.ast, loc).node;
 	if (!node || !node.is_valid()) {
 		log::error("Cursor not found!");
 		return { };

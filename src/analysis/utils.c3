@@ -481,7 +481,7 @@ fn Node* get_node(LspProject* project, Uri uri, LspPosition pos) {
 		return null;
 	}
 
-	return cursor::node(&entry.sf.ast, loc).node;
+	return cursor::node_entry(&entry.sf.ast, loc).node;
 }
 
 <*

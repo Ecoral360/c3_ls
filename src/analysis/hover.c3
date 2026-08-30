@@ -59,7 +59,7 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 		}
 	}
 
-	Node* node = cursor::node(&sf.ast, loc).node;
+	Node* node = cursor::node_entry(&sf.ast, loc).node;
 	if (!node || !node.is_valid()) return "";
 
 	List{SymbolRef} origins = analysis::lookup_reference(&project.session, uri.path, loc, node);

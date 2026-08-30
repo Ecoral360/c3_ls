@@ -422,7 +422,7 @@ fn Node* node_at(LspSession* session, String path, String src, String needle) {
 	FileEntry* entry = session.entry(path);
 	if (!entry || !entry.sf) return null;
 
-	return cursor::node(&entry.sf.ast, loc_of(src, needle)).node;
+	return cursor::node_entry(&entry.sf.ast, loc_of(src, needle)).node;
 }
 
 <*
