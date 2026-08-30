@@ -2,6 +2,7 @@ module lsp::core @test;
 
 import analyzer::core;
 import analyzer::core::diagnostics;
+import analyzer::sema::scope;
 import analyzer::cursor;
 import analyzer::lexer;
 
@@ -404,17 +405,17 @@ fn void session_analyze_keeps_the_scope_tree() => @pool() {
 	test_support::load(&session, test_support::FIXTURE_PATH, test_support::FIXTURE_SRC);
 	FileEntry* entry = session.entry(test_support::FIXTURE_PATH);
 
-	test::ne(entry.root_scope, null);
-	test::eq(entry.root_scope.parent, null);
+	test::ne(entry.root_rt_scope, null);
+	test::eq(entry.root_rt_scope.parent, null);
 
 	Location in_body = test_support::loc_of(test_support::FIXTURE_SRC, "int sum");
-	Scope* leaf      = find_deepest_scope(entry.root_scope, in_body);
+	Scope* leaf      = find_deepest_scope(entry.root_rt_scope, in_body);
 	test::ne(leaf, null);
-	test::ne(leaf, entry.root_scope);
+	test::ne(leaf, entry.root_rt_scope);
 	test::ne(leaf.parent, null);
 
 	Location at_top = { .line = 0, .column = 0 };
-	test::eq(find_deepest_scope(entry.root_scope, at_top), entry.root_scope);
+	test::eq(find_deepest_scope(entry.root_rt_scope, at_top), entry.root_rt_scope);
 
 	test::eq(find_deepest_scope(null, in_body), null);
 }
@@ -434,7 +435,7 @@ fn void session_collect_visible() => @pool() {
 	FileEntry* entry = session.entry(test_support::FIXTURE_PATH);
 
 	Location in_body = test_support::loc_of(test_support::FIXTURE_SRC, "return sum");
-	Scope* leaf      = find_deepest_scope(entry.root_scope, in_body);
+	Scope* leaf      = find_deepest_scope(entry.root_rt_scope, in_body);
 	test::ne(leaf, null);
 
 	List{VisibleVar} visible = collect_visible(tmem, leaf);
@@ -748,4 +749,52 @@ fn void project_change_file_replaces_the_parse() => @pool() {
 	FileEntry* entry = project.session.entry(PROJECT_PATH);
 	test::ne(entry, null);
 	test::eq(entry.text, PROJECT_V2);
+}
+<*
+ A cursor is not a character: it sits between them, and a completion
+ request lands one past what was just typed, which Range.contains rejects
+ because its end is exclusive. Trailing space widens the gap further -
+ "import " parses to a node covering only the keyword.
+
+ Both used to leave the declaration being written unmatched, so the
+ completion context fell back to GLOBAL and offered types instead of
+ module paths.
+*>
+fn void session_top_level_at_accepts_a_cursor_past_the_end() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String src = "module typed;\n\nimport out\n\nint after;\n";
+	session.set_file("/virtual/typed.c3", src);
+	FileEntry* entry = session.entry("/virtual/typed.c3");
+
+	Node* import_node;
+	Node* after_node;
+	foreach (Node* node : entry.sf.ast.statements) {
+		if (!node) continue;
+		if (node.kind == IMPORT_DECL) import_node = node;
+		if (node.kind == VAR_DECL) after_node = node;
+	}
+	test::ne(import_node, null);
+	test::ne(after_node, null);
+
+	// One past the last character of "import out".
+	test::eq(top_level_at(entry.sf, { .line = 2, .column = 10 }), import_node);
+
+	// And past trailing space, where the node's own range stops earlier.
+	String spaced = "module typed;\n\nimport \n\nint after;\n";
+	session.set_file("/virtual/spaced.c3", spaced);
+	FileEntry* spaced_entry = session.entry("/virtual/spaced.c3");
+
+	Node* spaced_import;
+	foreach (Node* node : spaced_entry.sf.ast.statements) {
+		if (node && node.kind == IMPORT_DECL) spaced_import = node;
+	}
+	test::ne(spaced_import, null);
+	test::@check(spaced_import.range.end.column < 7, "the node should stop before the trailing space");
+	test::eq(top_level_at(spaced_entry.sf, { .line = 2, .column = 7 }), spaced_import);
+
+	// A blank line still belongs to nothing: the fallback is same line only.
+	test::eq(top_level_at(entry.sf, { .line = 3, .column = 0 }), null);
 }

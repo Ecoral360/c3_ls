@@ -65,21 +65,19 @@ fn void response(Allocator allocator, LspProject* project, LspMessage* message) 
 }
 
 fn void resolve_response(Allocator allocator, LspProject* project, LspMessage* message) {
-	CompletionItemResolveParams payload = message.params.completion_resolve;
-	log::info("Resolving documentation item for: %s", payload.label);
+	CompletionItem item = message.params.completion_resolve;
+	log::info("Resolving documentation item for: %s", item.label);
 
-	CompletionItem resolved_item = {
-		.label = payload.label,
-		.kind = (CompletionItemKind)payload.kind,
-		.detail = payload.detail,
-	};
+	(void)completion::resolve_item(project, &item);
 
-	(void)completion::resolve_item(project, &payload.item);
+	List{CompletionItem} single;
+	single.tinit();
+	single.push(item);
 
 	LspCompletionResolveResponse res = {
 		.jsonrpc = message.rpc,
 		.id = message.id.get() ?? -1,
-		.result = resolved_item
+		.result = completion::finish(&single)[0],
 	};
 
 	String response_json = translator::encode(res, allocator);

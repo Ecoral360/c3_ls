@@ -91,7 +91,13 @@ union MessageParams {
 	DidCloseParams did_close;
 	HoverParams hover;
 	CompletionParams completion;
-	CompletionItemResolveParams completion_resolve;
+	<*
+	 The parameters of completionItem/resolve are a CompletionItem itself,
+	 not a wrapper around one. A struct with an `inline CompletionItem` did
+	 serialize correctly but deserialized to all-empty fields, so every
+	 resolve reply came back blank and clients inserted nothing.
+	*>
+	CompletionItem completion_resolve;
 	GoToDefinitionParams definition;
 
 	PublishDiagnosticsParams pub_diag;
@@ -152,11 +158,6 @@ struct CompletionParams @DStruct({ .rename_all = CAMEL_CASE }) {
 	}
 	LspPosition position;
 	CompletionContext context;
-}
-
-$expand(dessert::@derive(CompletionItemResolveParams));
-struct CompletionItemResolveParams {
-	inline CompletionItem item;
 }
 
 $expand(dessert::@derive(PublishDiagnosticsParams));

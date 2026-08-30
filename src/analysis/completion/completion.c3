@@ -24,7 +24,7 @@ struct Context {
 	Module* mod;
 	Allocator allocator;
 	String prefix;
-	ScopeKind scope;
+	CompletionContextKind scope;
 	Node* leaf_node;
 	Node* top_level_node;
 	<*
@@ -103,6 +103,25 @@ fn Node* find_node_by_id(LspSession* session, ulong node_id) {
 	return found;
 }
 
+<*
+ Last pass over a completion list before it goes on the wire.
+
+ Neither MarkupContent.kind nor InsertTextFormat has a valid zero value,
+ so an item that set neither would serialize as {"kind": "", "value": ""}
+ and "insertTextFormat": 0. Both are outside what the protocol allows,
+ and a client is within its rights to drop the item.
+
+ @param [&inout] items
+*>
+fn CompletionItem[] finish(List{CompletionItem}* items) {
+	foreach (&item : items) {
+		if (item.documentation.kind.len == 0) item.documentation.kind = PLAIN_TEXT;
+		if (item.insert_text_format == (InsertTextFormat)0) item.insert_text_format = PLAIN_TEXT;
+	}
+
+	return items.array_view();
+}
+
 fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 	log::debug("resolve");
 
@@ -122,7 +141,7 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 
 	ctx.file = project.session.entry(uri.path);
 	if (!ctx.file || !ctx.file.sf) {
-		return items.array_view(); // No tracked file yet
+		return finish(&items); // No tracked file yet
 	}
 
 	ctx.sf = ctx.file.sf;
@@ -136,7 +155,7 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 	if (offset > 0 && source[offset - 1] == ':') {
 		if (offset < 2 || source[offset - 2] != ':') {
 			log::debug("Aborting completion: Triggered by a single ':' context.");
-			return items.array_view();
+			return finish(&items);
 		}
 	}
 
@@ -148,7 +167,7 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 
 	context_populate_tokens(&ctx);
 	detect_access_context(&ctx);
-	ctx.scope = analysis::find_scope(&ctx, ctx.location);
+	ctx.scope = analysis::find_ctx_completion_kind(&ctx, ctx.location);
 
 	log::info("access: %s", ctx.access.description);
 	log::info("Scope: %s", ctx.scope.description);
@@ -156,12 +175,12 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 	log::info("prefix: %s", ctx.prefix);
 
 	if (provide_member_access(&ctx, &items)) {
-		return items.array_view();
+		return finish(&items);
 	}
 
 	if (ctx.scope == IMPORT) {
 		provide_imports(&ctx, &items);
-		return items.array_view();
+		return finish(&items);
 	}
 
 	if (ctx.scope == EXECUTION || ctx.scope == CONTAINER) {
@@ -172,7 +191,7 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 	provide_module_paths(&ctx, &items);
 	provide_keywords(&ctx, &items);
 
-	return items.array_view();
+	return finish(&items);
 }
 
 fn void provide_imports(Context* ctx, List{CompletionItem}* items) {

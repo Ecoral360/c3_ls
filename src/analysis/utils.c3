@@ -23,9 +23,7 @@ fn String extract_prefix(String text, sz byte_offset) {
 				case '#':
 				case '$':
 					start_idx--;
-					break;
 				default:
-					break;
 			}
 			break;
 		}
@@ -65,10 +63,14 @@ fn CompletionItemKind completion_kind_from_node(Node* node) {
 <*
 
 *>
-fn ScopeKind find_scope(Context* ctx, Location cursor_loc) {
+fn CompletionContextKind find_ctx_completion_kind(Context* ctx, Location cursor_loc) {
 	if (!ctx.top_level_node) return GLOBAL;
+
+	// No containment re-check here: top_level_at already picked this node
+	// for this cursor, and it accepts positions the node's own range does
+	// not cover - one past the end, or past trailing space. Re-testing with
+	// Range.contains threw those away again.
 	Node* node = ctx.top_level_node;
-	if (!node.range.contains(cursor_loc)) return GLOBAL;
 
 	switch (node.kind) {
 		case IMPORT_DECL:
@@ -78,22 +80,19 @@ fn ScopeKind find_scope(Context* ctx, Location cursor_loc) {
 			if (func.body && !is_before(cursor_loc, func.body.range.start)) {
 				return EXECUTION;
 			}
-			break;
+
 		case MACRO_DECL:
 			MacroDecl* mac = node.as(MacroDecl);
 			if (mac.body && !is_before(cursor_loc, mac.body.range.start)) {
 				return EXECUTION;
 			}
-			break;
+		
 		default:
-			break;
 	}
 
 	switch (node.kind) {
 		case STRUCT_DECL:
-
-			{
-				ScopeKind scope = NONE;
+				CompletionContextKind scope = NONE;
 				int num_braces;
 
 				foreach (t : ctx.tokens) {
@@ -111,13 +110,10 @@ fn ScopeKind find_scope(Context* ctx, Location cursor_loc) {
 					}
 				}
 				return scope;
-			}
 
 		case FN_DECL:
 		case MACRO_DECL:
-
-			{
-				ScopeKind scope = GLOBAL;
+				CompletionContextKind scope = GLOBAL;
 				int parens;
 				int braces;
 
@@ -141,10 +137,8 @@ fn ScopeKind find_scope(Context* ctx, Location cursor_loc) {
 					}
 				}
 				return scope;
-			}
 
 		default:
-			break;
 	}
 
 	return GLOBAL;
@@ -153,7 +147,7 @@ fn ScopeKind find_scope(Context* ctx, Location cursor_loc) {
 <*
 
 *>
-fn ScopeKind find_node(Context* ctx, Location cursor_loc) {
+fn CompletionContextKind get_node_completion_context_kind(Context* ctx, Location cursor_loc) {
 	if (!ctx.top_level_node) return GLOBAL;
 	Node* node = ctx.top_level_node;
 	if (node.range.contains(cursor_loc)) {
@@ -167,7 +161,6 @@ fn ScopeKind find_node(Context* ctx, Location cursor_loc) {
 				return CONTAINER;
 
 			default:
-				break;
 		}
 	}
 
@@ -231,7 +224,25 @@ fn Module* find_module_by_identifier(LspSession* session, String current_module_
 	return null;
 }
 
-fn void inject_type_properties(Context* ctx, List{CompletionItem}* items, NodeKind type_kind) {
+<*
+ True when `label` is still a candidate for what the user has typed.
+*>
+fn bool matches_prefix(Context* ctx, String label) {
+	if (ctx.prefix.len == 0) return true;
+	return label.starts_with(ctx.prefix);
+}
+
+<*
+ The reflection properties a type exposes through '::'.
+
+ Built into a scratch list and then filtered, so that typing a character
+ after the operator narrows the list. Every push below predates the
+ prefix and none of them consulted it.
+*>
+fn void inject_type_properties(Context* ctx, List{CompletionItem}* out, NodeKind type_kind) {
+	List{CompletionItem} items;
+	items.tinit();
+
 	items.push(
 		{
 			.label = "alignment",
@@ -344,6 +355,10 @@ fn void inject_type_properties(Context* ctx, List{CompletionItem}* items, NodeKi
 
 		default:
 			break;
+	}
+
+	foreach (CompletionItem item : items) {
+		if (matches_prefix(ctx, item.label)) out.push(item);
 	}
 }
 
@@ -472,4 +487,3 @@ fn Node* get_node(LspProject* project, Uri uri, LspPosition pos) {
 
 	return cursor::node(&entry.sf.ast, loc).node;
 }
-

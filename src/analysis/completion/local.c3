@@ -18,10 +18,18 @@ fn void provide_locals(Context* ctx, List{CompletionItem}* items) {
 
 	if (!ctx.file) return;
 
-	Scope* leaf = core::find_deepest_scope(ctx.file.root_scope, ctx.location);
-	if (!leaf) return;
+	if (Scope* leaf = core::find_deepest_scope(ctx.file.root_rt_scope, ctx.location)) {
+		provide_scope_locals(leaf, ctx, items);
+	}
 
+	if (Scope* leaf = core::find_deepest_scope(ctx.file.root_ct_scope, ctx.location)) {
+		provide_scope_locals(leaf, ctx, items);
+	}
+}
+
+fn void provide_scope_locals(Scope* leaf, Context* ctx, List{CompletionItem}* items) @private {
 	List{VisibleVar} symbols = core::collect_visible(tmem, leaf);
+
 	foreach (VisibleVar symbol : symbols) {
 		if (!symbol.info || !symbol.info.node) continue;
 

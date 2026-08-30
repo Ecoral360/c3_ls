@@ -235,7 +235,7 @@ fn Context make_completion_context(LspSession* session, String path, Location lo
 
 	completion::context_populate_tokens(&ctx);
 	completion::detect_access_context(&ctx);
-	ctx.scope = analysis::find_scope(&ctx, loc);
+	ctx.scope = analysis::find_ctx_completion_kind(&ctx, loc);
 
 	return ctx;
 }
@@ -354,4 +354,21 @@ fn String spell(Node* node) {
 *>
 fn String literal_text(Node* var_node) {
 	return spell(init_of(var_node));
+}
+
+<*
+ Number of member completions offered with `typed` written on the
+ PLACEHOLDER line of `src`, with the cursor at the end of it.
+*>
+fn int member_labels(LspSession* session, String src, String typed) {
+	String text = src.treplace("PLACEHOLDER", typed);
+	load(session, "/virtual/typed.c3", text);
+
+	Context ctx = make_completion_context(session, "/virtual/typed.c3", loc_after(text, typed));
+
+	List{CompletionItem} items;
+	items.tinit();
+	completion::provide_member_access(&ctx, &items);
+
+	return (int)items.len();
 }

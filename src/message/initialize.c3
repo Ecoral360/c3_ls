@@ -33,7 +33,7 @@ fn void response(Allocator allocator, LspMessage* message) {
 					.change = FULL,
 				},
 				.completion_provider = {
-					.trigger_characters = { ".", ":", "@", " " },
+					.trigger_characters = { ".", ":", "@", " ", "$" },
 					.resolve_provider = true,
 					.completion_item = { .label_detail_support = true }
 				},

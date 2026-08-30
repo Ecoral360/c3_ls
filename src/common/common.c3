@@ -109,11 +109,17 @@ struct CompletionItem @DStruct({ .rename_all = CAMEL_CASE }) {
 	 A human-readable string with additional information
 	 about this item, like type or symbol information.
 	*>
-	String detail;
+	String detail @DField({ .skip_if_empty = true });
 	MarkupContent documentation;
-	String insert_text;
+	<*
+	 Omitted when empty on purpose. A present but empty insertText makes a
+	 client insert nothing when the item is picked; absent means "use the
+	 label", which is what every item without an explicit snippet wants.
+	 The same goes for filterText.
+	*>
+	String insert_text @DField({ .skip_if_empty = true });
 	InsertTextFormat insert_text_format;
-	String filter_text;
+	String filter_text @DField({ .skip_if_empty = true });
 	String sort_text @DField({ .skip_if_empty = true });
 	<* custom data *>
 	String data @DField({ .skip_if_empty = true });

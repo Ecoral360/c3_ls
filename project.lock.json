@@ -8,7 +8,7 @@
       "path": "lib/c3-analyzer.c3l",
       "zip": false,
       "ref": "",
-      "commit": "959abfd45d32a99e3589f0a70908e7eadd2d3c7f"
+      "commit": "5ca2595dee556b405f3551db7b542ff6173d8a40"
     },
     {
       "name": "dessert",
@@ -17,7 +17,7 @@
       "path": "lib/dessert.c3l",
       "zip": false,
       "ref": "",
-      "commit": "8a3f69794ef63d56c044c3f8734442fbd45c7f63"
+      "commit": "6e46c0188afed901873cee65fbe901488f3cf37d"
     }
   ]
 }

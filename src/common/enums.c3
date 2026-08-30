@@ -215,11 +215,21 @@ fn bool Keywords.is_statement(self) {
 		case CONST:
 		case VAR:
 		case IF:
+		case ELSE:
 		case FOR:
 		case WHILE:
+		case DO:
 		case FOREACH:
 		case FOREACH_R:
+		case SWITCH:
+		case CASE:
+		case DEFAULT:
+		case NEXTCASE:
+		case BREAK:
+		case CONTINUE:
+		case RETURN:
 		case DEFER:
+		case STATIC:
 		case LENGTHOF:
 			return true;
 		default:
@@ -232,6 +242,8 @@ fn bool Keywords.is_expression(self) {
 		case TRUE:
 		case FALSE:
 		case NULL:
+		case TRY:
+		case CATCH:
 			return true;
 		default:
 			return false;

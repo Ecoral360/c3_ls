@@ -1,6 +1,6 @@
 module lsp;
 
-enum ScopeKind {
+enum CompletionContextKind {
 	NONE,
 	IMPORT,
 	GLOBAL,

@@ -54,7 +54,8 @@ struct FileEntry {
 	String path;
 	DynamicArenaAllocator arena;
 	SourceFile* sf;
-	Scope* root_scope;
+	Scope* root_rt_scope;
+	Scope* root_ct_scope;
 	LineIndex lines;
 	String text;
 }
@@ -89,7 +90,7 @@ LspSession* active_session @local;
 *>
 fn void LspSession.init(&self, Allocator allocator) {
 	self.allocator = allocator;
-	self.ctx = context::create(allocator);
+	self.ctx = context::new(allocator);
 
 	// context::create builds a registry and a lookup from `allocator`, but
 	// rebuild_index replaces both with index arena copies on the first
@@ -214,7 +215,8 @@ fn void LspSession.set_file(&self, String path, String text) {
 	}
 
 	entry.sf = null;
-	entry.root_scope = null;
+	entry.root_rt_scope = null;
+	entry.root_ct_scope = null;
 
 	Allocator file_alloc = &entry.arena;
 	Allocator saved      = self.ctx.allocator;
@@ -223,17 +225,17 @@ fn void LspSession.set_file(&self, String path, String text) {
 	entry.text = text.copy(file_alloc);
 	entry.lines.init(file_alloc, entry.text);
 
-	Lexer* lex = lexer::create(self.ctx, entry.text);
+	Lexer* lex = lexer::new(self.ctx, entry.text);
 
 	// Create the SourceFile before tokenizing: the lexer reports its
 	// diagnostics against ctx.current_source_file, and the callback drops
 	// anything that arrives without one.
-	SourceFile* sf = source_file::create(self.ctx, lex, entry.path);
+	SourceFile* sf = source_file::new(self.ctx, lex, entry.path);
 	self.ctx.current_source_file = sf;
 
 	lexer::tokenize(lex);
 
-	ParseContext* parse_ctx = parser::create(self.ctx);
+	ParseContext* parse_ctx = parser::new(self.ctx);
 	(void)parser::parse(parse_ctx, sf);
 
 	entry.sf = sf;
@@ -284,8 +286,8 @@ fn void LspSession.rebuild_index(&self) {
 	// Both of these index into the arena we just reset, and both are
 	// keyed by strings that live there too, so they have to be rebuilt
 	// alongside it rather than accumulating dangling entries.
-	self.ctx.registry = registry::create(index_alloc);
-	self.ctx.lookup = lookup::create(self.ctx, index_alloc);
+	self.ctx.registry = registry::new(index_alloc);
+	self.ctx.lookup = lookup::new(self.ctx, index_alloc);
 
 	self.entries.@each(; String path, FileEntry* entry) {
 		if (entry.sf) {
@@ -367,9 +369,10 @@ fn void LspSession.analyze(&self, String path) {
 	Allocator saved = self.ctx.allocator;
 	self.ctx.allocator = &entry.arena;
 
-	SemaContext* sema_ctx = sema::create(self.ctx);
+	SemaContext* sema_ctx = sema::new(self.ctx);
 	sema::analyze_source_file(sema_ctx, entry.sf);
-	entry.root_scope = sema_ctx.scope;
+	entry.root_rt_scope = sema_ctx.runtime_scope;
+	entry.root_ct_scope = sema_ctx.comptime_scope;
 
 	self.ctx.allocator = saved;
 }
@@ -531,12 +534,25 @@ fn List{VisibleVar} collect_visible(Allocator allocator, Scope* leaf) {
 fn Node* top_level_at(SourceFile* sf, Location loc) {
 	if (!sf) return null;
 
+	Node* trailing;
+
 	foreach (Node* node : sf.ast.statements) {
 		if (!node) continue;
 		if (node.range.contains(loc)) return node;
+
+		// Range.contains is end exclusive, which is right for "which node
+		// is this character part of". A cursor is not a character though:
+		// it sits between them, so a completion request lands one past what
+		// was just typed - further still when there is trailing space,
+		// since "import " parses to a node covering only the keyword.
+		// Statements are in source order, so the last node ending on this
+		// line at or before the cursor is the one being written.
+		if (node.range.end.line == loc.line && node.range.end.column <= loc.column) {
+			trailing = node;
+		}
 	}
 
-	return null;
+	return trailing;
 }
 
 <*
