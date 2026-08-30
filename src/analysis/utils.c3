@@ -61,9 +61,80 @@ fn CompletionItemKind completion_kind_from_node(Node* node) {
 }
 
 <*
+ What has been typed between an `import` keyword and the cursor.
+*>
+struct ImportPrefix {
+	<*
+	 False when the cursor is not on an import line, which is every place
+	 module names must not be offered.
+	*>
+	bool found;
+	<* Everything typed after the keyword, e.g. "std::collections::li". *>
+	String path;
+	<* `path` up to and including its last "::", empty when it has none. *>
+	String base;
+	<* The trailing partial segment, "li" above. *>
+	String segment;
+}
+
+<*
+ Read the import path off the line the cursor is on.
+
+ Deliberately text based. A half written import parses to an IMPORT_DECL,
+ to an ERROR node, or to nothing at all depending on how far the line got,
+ and the declaration the cursor lands in is no help either: a fresh line
+ under a finished `import std::io;` still resolves to that import. The
+ line text is the one thing that always says whether an import is being
+ written.
+*>
+fn ImportPrefix import_prefix_at(Context* ctx, Location cursor_loc) {
+	if (!ctx.file || !ctx.sf) return { };
+
+	String source = ctx.sf.content;
+	sz offset     = ctx.file.lines.offset_of(cursor_loc);
+	if (offset > source.len) return { };
+
+	String head = source[:offset];
+
+	sz line_start = 0;
+	if (try sz newline = head.rindex_of_char('\n')) line_start = newline + 1;
+
+	String line = head[line_start..].trim_left();
+	if (!line.starts_with("import")) return { };
+
+	String rest = line["import".len..];
+	// `imported` is not `import`: the keyword has to end the word.
+	if (rest.len > 0 && (rest[0].is_alnum() || rest[0] == '_')) return { };
+	rest = rest.trim_left();
+
+	// `import a, b;` declares two, and only the one being typed matters.
+	if (try sz comma = rest.rindex_of_char(',')) rest = rest[comma + 1..].trim_left();
+
+	// A ';', a space, or anything else that cannot appear in a module path
+	// means the cursor has left the name and is no longer completing it.
+	foreach (char c : rest) {
+		if (c.is_alnum() || c == '_' || c == ':') continue;
+		return { };
+	}
+
+	ImportPrefix typed = { .found = true, .path = rest, .segment = rest };
+
+	if (try sz separator = rest.rindex_of("::")) {
+		typed.base = rest[:separator + 2];
+		typed.segment = rest[separator + 2..];
+	}
+
+	return typed;
+}
+
+<*
 
 *>
 fn CompletionContextKind find_ctx_completion_kind(Context* ctx, Location cursor_loc) {
+	// Ahead of anything AST based, because the AST is the unreliable part
+	// while an import is being typed.
+	if (import_prefix_at(ctx, cursor_loc).found) return IMPORT;
+
 	if (!ctx.top_level_node) return GLOBAL;
 
 	Node* node = ctx.top_level_node;
@@ -74,65 +145,68 @@ fn CompletionContextKind find_ctx_completion_kind(Context* ctx, Location cursor_
 	// 		if (func.body && !is_before(cursor_loc, func.body.range.start)) {
 	// 			return EXECUTION;
 	// 		}
-	//
+	// 
 	// 	case MACRO_DECL:
 	// 		MacroDecl* mac = node.as(MacroDecl);
 	// 		if (mac.body && !is_before(cursor_loc, mac.body.range.start)) {
 	// 			return EXECUTION;
 	// 		}
-	// 	
+	// 
 	// 	default:
 	// }
 
 	switch (node.kind) {
 		case IMPORT_DECL:
-			return IMPORT;
+			// The line check above already said no, so the cursor is only
+			// inside this import by association - typically the blank line
+			// under it, which is ordinary top level ground.
+			return GLOBAL;
 		case STRUCT_DECL:
-				CompletionContextKind scope = NONE;
-				int num_braces;
+			CompletionContextKind scope = NONE;
+			int num_braces;
 
-				foreach (t : ctx.tokens) {
-					if (!is_before(t.range.start, cursor_loc)) break;
+			foreach (t : ctx.tokens) {
+				if (!is_before(t.range.start, cursor_loc)) break;
 
-					if (t.kind == LBRACE) {
-						num_braces++;
-						scope = CONTAINER;
-					}
-					if (t.kind == RBRACE) {
-						num_braces--;
-						if (num_braces <= 0) {
-							scope = GLOBAL;
-						}
+				if (t.kind == LBRACE) {
+					num_braces++;
+					scope = CONTAINER;
+				}
+				if (t.kind == RBRACE) {
+					num_braces--;
+					if (num_braces <= 0) {
+						scope = GLOBAL;
 					}
 				}
-				return scope;
+			}
+			return scope;
 
 		case FN_DECL:
 		case MACRO_DECL:
-				CompletionContextKind scope = GLOBAL;
-				int parens;
-				int braces;
+			CompletionContextKind scope = GLOBAL;
+			int parens;
+			int braces;
 
-				foreach (t : ctx.tokens) {
-					if (!is_before(t.range.start, cursor_loc)) break;
+			foreach (t : ctx.tokens) {
+				if (!is_before(t.range.start, cursor_loc)) break;
 
-					if (t.kind == LBRACE) {
-						braces++;
-						scope = EXECUTION;
-					} else if (t.kind == RBRACE) {
-						braces--;
-						scope = (braces == 0) ? GLOBAL : EXECUTION;
-					} else if (t.kind == LPAREN) {
-						parens++;
-						scope = PARAMETER;
-					} else if (t.kind == RPAREN) {
-						parens--;
-						scope = NONE;
-					} else if (braces == 0 && parens == 0 && t.kind == IDENT) {
-						scope = NONE;
-					}
+				if (t.kind == LBRACE) {
+					braces++;
+					scope = EXECUTION;
+				} else if (t.kind == RBRACE) {
+					braces--;
+					scope = (braces == 0) ? GLOBAL : EXECUTION;
+				} else if (t.kind == LPAREN) {
+					parens++;
+					scope = PARAMETER;
+				} else if (t.kind == RPAREN) {
+					parens--;
+					scope = NONE;
+				} else if (braces == 0 && parens == 0 && t.kind == IDENT) {
+					scope = NONE;
 				}
-				return scope;
+			}
+			return scope;
 
 		default:
 	}

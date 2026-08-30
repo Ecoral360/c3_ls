@@ -140,6 +140,16 @@ fn void from_inner()
 
 const String INNER_PATH = "/virtual/inner.c3";
 
+const String DEEP_SRC = `module outer::inner::deep;
+
+fn void from_deep()
+{
+	return;
+}
+`;
+
+const String DEEP_PATH = "/virtual/deep.c3";
+
 <*
  Run the pipeline in the order LspProject.update runs it, for one file.
 
@@ -471,4 +481,35 @@ fn TypeContext member_types(LspSession* session) {
 		.file = session.entry(MEMBER_PATH),
 		.mod = session.module_for_file(MEMBER_PATH),
 	};
+}
+
+const String IMPORT_TYPING_PATH = "/virtual/typing.c3";
+
+<*
+ Load the three nested fixture modules plus a file of `src`.
+
+ @param [&inout] session
+*>
+fn Context import_context(LspSession* session, String src, String needle) {
+	session.set_file(OUTER_PATH, OUTER_SRC);
+	session.set_file(INNER_PATH, INNER_SRC);
+	session.set_file(DEEP_PATH, DEEP_SRC);
+
+	session.set_file(IMPORT_TYPING_PATH, src);
+	session.rebuild_index();
+	session.analyze(IMPORT_TYPING_PATH);
+
+	return make_completion_context(session, IMPORT_TYPING_PATH, loc_after(src, needle));
+}
+
+fn String[] import_labels(Context* ctx) {
+	List{CompletionItem} items;
+	items.tinit();
+	completion::provide_imports(ctx, &items);
+
+	List{String} labels;
+	labels.tinit();
+	foreach (CompletionItem item : items) labels.push(item.label);
+
+	return labels.to_tarray();
 }

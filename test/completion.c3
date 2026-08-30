@@ -1219,3 +1219,120 @@ fn void methods_do_not_leak_across_modules() => @pool() {
 		offered
 	);
 }
+// ---------------------------------------------------------------------
+// Import completion
+// ---------------------------------------------------------------------
+
+<*
+ A module path is only a prefix of itself when it is matched whole.
+
+ ctx.prefix stops at the last "::", so `import outer::inn` used to be
+ filtered on "inn" alone: no module starts with that, and the list came
+ back empty exactly when it was needed most.
+*>
+fn void import_completion_matches_deep_paths() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	Context ctx = test_support::import_context(&session, "module typing;\n\nimport outer::inn\n", "import outer::inn");
+	test::eq(ctx.scope, CompletionContextKind.IMPORT);
+
+	String[] offered = test_support::import_labels(&ctx);
+	test::@check(test_support::has(offered, "outer::inner"), "the nested module is missing: %s", offered);
+	test::@check(test_support::has(offered, "outer::inner::deep"), "the deeper module is missing: %s", offered);
+	test::@check(
+		!test_support::has(offered, "outer"),
+		"the parent module is not a match for 'outer::inn': %s",
+		offered
+	);
+}
+
+<*
+ The whole path is typed, so only what follows the last "::" may be
+ inserted: a client replaces the word under the cursor, and "::" does not
+ belong to a word.
+*>
+fn void import_completion_inserts_only_the_untyped_tail() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	Context ctx = test_support::import_context(
+		&session,
+		"module typing;\n\nimport outer::inner::\n",
+		"import outer::inner::"
+	);
+
+	List{CompletionItem} items;
+	items.tinit();
+	provide_imports(&ctx, &items);
+
+	test::eq(items.len(), 1);
+	test::eq(items[0].label, "outer::inner::deep");
+	test::eq(items[0].insert_text, "deep");
+	test::eq(items[0].filter_text, "deep");
+
+	// With nothing typed after the keyword there is no tail to strip.
+	Context bare = test_support::import_context(&session, "module typing;\n\nimport \n", "import ");
+	List{CompletionItem} all;
+	all.tinit();
+	provide_imports(&bare, &all);
+
+	foreach (CompletionItem item : all) {
+		if (item.label == "outer::inner::deep") test::eq(item.insert_text, "outer::inner::deep");
+	}
+}
+
+<*
+ Module names belong on an import line and nowhere else.
+
+ The parser hands the line under a finished `import` back as that same
+ IMPORT_DECL, and a completion request from past the last token resolves
+ to no node at all, so neither answer can decide this on its own.
+*>
+fn void import_completion_only_fires_on_an_import_line() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	// The line under a finished import.
+	Context after = test_support::import_context(&session, "module typing;\n\nimport outer;\nout\n", "\nout");
+	test::ne(after.scope, CompletionContextKind.IMPORT);
+	test::eq(test_support::import_labels(&after).len, 0);
+
+	// A statement inside a function body.
+	Context body = test_support::import_context(
+		&session,
+		"module typing;\n\nimport outer;\n\nfn void go()\n{\n\tout\n}\n",
+		"\tout"
+	);
+	test::ne(body.scope, CompletionContextKind.IMPORT);
+	test::eq(test_support::import_labels(&body).len, 0);
+
+	// A declaration whose name merely starts with the keyword.
+	Context named = test_support::import_context(&session, "module typing;\n\nint imported;\n", "int imported");
+	test::ne(named.scope, CompletionContextKind.IMPORT);
+	test::eq(test_support::import_labels(&named).len, 0);
+
+	// Past the ';', the name is finished and there is nothing to complete.
+	Context done = test_support::import_context(&session, "module typing;\n\nimport outer; \n", "import outer; ");
+	test::ne(done.scope, CompletionContextKind.IMPORT);
+	test::eq(test_support::import_labels(&done).len, 0);
+}
+
+<*
+ A file never needs to import the module it declares.
+*>
+fn void import_completion_skips_the_files_own_module() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	Context ctx = test_support::import_context(&session, "module outer;\n\nimport out\n", "import out");
+	test::eq(ctx.scope, CompletionContextKind.IMPORT);
+
+	String[] offered = test_support::import_labels(&ctx);
+	test::@check(!test_support::has(offered, "outer"), "the file's own module was offered: %s", offered);
+	test::@check(test_support::has(offered, "outer::inner"), "a sibling module is still importable: %s", offered);
+}

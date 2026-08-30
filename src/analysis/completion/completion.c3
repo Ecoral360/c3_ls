@@ -25,7 +25,7 @@ struct Context {
 	Allocator allocator;
 
 	LspAccessKind access;
-	// stores the last Type before the typed thing. 
+	// stores the last Type before the typed thing.
 	// i.e : in `a.b.c`, base_node is the node corresponding to where the type of `b` is defined
 	Node* base_node;
 	String base_identifier; // Stores 'variable' or 'Type' string found before the operator
@@ -169,8 +169,8 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 
 	NodeEntry node_entry = cursor::node_entry(&ctx.sf.ast, ctx.location);
 
-	ctx.top_level_node = ctx.sf.ast.node_at(node_entry.path)!;
-	ctx.leaf_node = node_entry.node; //cursor::find_at(ctx.sf.ast.statements.array_view(), { ctx.location, ctx.location });
+	ctx.top_level_node = ctx.sf.ast.node_at(node_entry.path, depth: 0) ?? null;
+	ctx.leaf_node = node_entry.node;
 
 	context_populate_tokens(&ctx);
 	detect_access_context(&ctx);
@@ -201,19 +201,41 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 	return finish(&items);
 }
 
+<*
+ Module names for an `import` line, matched against the whole path typed
+ so far rather than ctx.prefix.
+
+ ctx.prefix stops at the last `::`, so it is "li" in
+ `import std::collections::li` and would match every module in the
+ workspace whose name happens to start that way. Matching the full path
+ is what makes a deep name reachable.
+
+ The label carries the whole path, but insertText and filterText carry
+ only the tail past the last `::`. A client matches and replaces the word
+ under the cursor, and `::` is not a word character, so the part already
+ typed must not be repeated in what gets inserted.
+*>
 fn void provide_imports(Context* ctx, List{CompletionItem}* items) {
-	ctx.session.ctx.modules.@each(; name, mod) {
+	ImportPrefix typed = analysis::import_prefix_at(ctx, ctx.location);
+	if (!typed.found) return;
+
+	String own_module = ctx.mod ? ctx.mod.name : "";
+
+	ctx.session.ctx.modules.@each(; String name, Module* mod) {
 		do SCOPE: {
-			log::info(name);
-			if (ctx.prefix.len > 0 && !name.starts_with(ctx.prefix)) {
-				break SCOPE;
-			}
+			// Importing the module the file already declares is a no-op.
+			if (name == own_module) break SCOPE;
+			if (!name.starts_with(typed.path)) break SCOPE;
+
+			String tail = name[typed.base.len..];
 
 			items.push(
 				{
 					.label = name,
 					.kind = MODULE,
 					.detail = "Module",
+					.insert_text = tail,
+					.filter_text = tail,
 					.sort_text = string::tformat("0001_%s", name),
 					.documentation = {
 						.value = string::tformat("Import the `%s` module into this file context.", name)
@@ -222,6 +244,4 @@ fn void provide_imports(Context* ctx, List{CompletionItem}* items) {
 			);
 		};
 	};
-
-	ctx.prefix = "\0_CONTEXT_LOCK_";
 }
