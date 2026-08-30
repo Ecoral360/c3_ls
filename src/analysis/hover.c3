@@ -84,7 +84,7 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 	foreach (origin : origins) {
 		ContractDecl* contract = cursor::contract(origin.node)!;
 		if (!contract) continue;
-		output.push(origin.owner.lines.slice(origin.node.range));
+		output.push(origin.owner.lines.slice(contract.node.range));
 	}
 
 	return string::tjoin(output.array_view(), "\n---\n");
