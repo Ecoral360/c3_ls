@@ -198,7 +198,7 @@ fn void provide_imports(Context* ctx, List{CompletionItem}* items) {
 		do SCOPE: {
 			// Importing the module the file already declares is a no-op.
 			if (name == own_module) break SCOPE;
-			if (!name.starts_with(typed.path)) break SCOPE;
+			if (!name_matches_fuzzy(name, typed.path)) break SCOPE;
 
 			String tail = name[typed.base.len..];
 

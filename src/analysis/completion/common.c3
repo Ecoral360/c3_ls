@@ -78,9 +78,22 @@ fn void provide_keywords(Context* ctx, List{CompletionItem}* items) {
 	}
 }
 
-<*
- ffoooo basdarsfdasfasfas
-*>
+fn bool name_matches_fuzzy(String symbol_name, String prefix) {
+	foreach (c : prefix) {
+		if (try idx = symbol_name.index_of_char(c)) {
+			if (idx + 1 == symbol_name.len) {
+				symbol_name = "";
+			} else {
+				symbol_name = symbol_name[idx..];
+			}
+		} else {
+			return false;
+		}
+	}
+
+	return true;
+}
+
 fn void add_symbol_completion(
 	Context* ctx,
 	List{CompletionItem}* items,
