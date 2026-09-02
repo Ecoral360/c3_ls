@@ -656,6 +656,8 @@ fn List{SymbolRef} LspSession.find_symbols(&self, String name) {
  too.
 *>
 fn String method_target(Node* node) {
+	if (!node) return "";
+
 	Node* associated;
 
 	switch (node.kind) {
@@ -729,13 +731,17 @@ fn String LspSession.node_source_text(&self, Node* node) {
 }
 
 <*
- Declaration signature without the body.
+ Declaration signature without the body or the initializer.
 
  Reimplements the analyzer's commented out `cursor::signature_text`.
+
+ @param owner : "file the node was parsed from, for the nodes node_owner cannot answer for - a struct field is not a top level statement, so its range means nothing without the file it came from"
 *>
-fn String LspSession.node_signature_text(&self, Node* node) {
-	FileEntry* entry = self.entry_for_node(node);
-	if (!entry || !node) return "";
+fn String LspSession.node_signature_text(&self, Node* node, FileEntry* owner = null) {
+	if (!node) return "";
+
+	FileEntry* entry = owner ?: self.entry_for_node(node);
+	if (!entry) return "";
 
 	Node* body;
 	switch (node.kind) {
@@ -743,6 +749,15 @@ fn String LspSession.node_signature_text(&self, Node* node) {
 			body = node.as(FnDecl).body;
 		case MACRO_DECL:
 			body = node.as(MacroDecl).body;
+		case VAR_DECL:
+			// A variable's node covers the whole statement. The
+			// initializer is the value, not the declaration, and on a
+			// local it can run for lines.
+			String text = entry.lines.slice(node.range).trim().strip_suffix(";").trim();
+			sz assign = text.index_of_char('=') ?? -1;
+			if (assign > 0) text = text[:assign].trim();
+
+			return text;
 		default:
 			body = null;
 	}

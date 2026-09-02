@@ -638,24 +638,61 @@ fn String path_prefix(Node* path_node) @local {
 }
 
 <*
- The single declaration a member reference resolves to, wrapped so it
- reads like any other lookup result.
+ The declaration whose own name the cursor sits on, or null.
+
+ Hovering the `v` of a struct's `int v;` found nothing: a field is in no
+ scope and the index only carries top level declarations, so a lookup by
+ name either missed or answered with an unrelated `v` from somewhere
+ else. The node under the cursor already is the declaration.
 *>
-fn List{SymbolRef} member_refs(LspSession* session, MemberResolution member) @local {
+fn Node* declaration_at(Node* node, Location loc) @local {
+	if (!node) return null;
+
+	Ident* name;
+	switch (node.kind) {
+		case FN_DECL:
+			name = node.as(FnDecl).name;
+		case MACRO_DECL:
+			name = node.as(MacroDecl).name;
+		case STRUCT_DECL:
+			name = node.as(StructDecl).name;
+		case ENUM_DECL:
+			name = node.as(EnumDecl).name;
+		case TYPEDEF_DECL:
+			name = node.as(TypedefDecl).name;
+		case INTERFACE_DECL:
+			name = node.as(InterfaceDecl).name;
+		case VAR_DECL:
+			name = node.as(VarDecl).name;
+		default:
+			return null;
+	}
+
+	if (!name || !name.range.contains(loc)) return null;
+
+	return node;
+}
+
+<*
+ One declaration, wrapped so it reads like any other lookup result.
+*>
+fn List{SymbolRef} single_ref(Node* decl, FileEntry* owner, Module* mod) @local {
 	List{SymbolRef} refs;
 	refs.tinit();
 
-	if (!member.decl) return refs;
+	if (decl) refs.push({ .node = decl, .module_name = mod ? mod.name : "", .owner = owner });
+
+	return refs;
+}
+
+fn List{SymbolRef} member_refs(LspSession* session, MemberResolution member) @local {
+	if (!member.decl) return single_ref(null, null, null);
 
 	// A method is a top level declaration and the index knows where it came
 	// from. A field is not, so its type answers for it.
 	Node* anchor = session.entry_for_node(member.decl) ? member.decl : member.type_decl;
 
-	FileEntry* owner = session.entry_for_node(anchor);
-	Module* mod      = session.module_of(anchor);
-
-	refs.push({ .node = member.decl, .module_name = mod ? mod.name : "", .owner = owner });
-	return refs;
+	return single_ref(member.decl, session.entry_for_node(anchor), session.module_of(anchor));
 }
 
 <*
@@ -670,6 +707,8 @@ fn List{SymbolRef} lookup_reference(LspSession* session, String path, Location l
 	FileEntry* entry = session.entry(path);
 	Module* current  = session.module_for_file(path);
 
+	QualifiedSymbol symbol = qualified_symbol_at(node, loc);
+
 	if (entry && entry.sf) {
 		TypeContext types = {
 			.session = session,
@@ -680,9 +719,23 @@ fn List{SymbolRef} lookup_reference(LspSession* session, String path, Location l
 
 		MemberResolution member = member_at(types, entry.sf, loc);
 		if (member.decl) return member_refs(session, member);
+
+		// The cursor is on a declaration's own name, so the node under it
+		// is already the answer. A struct field is neither in the index nor
+		// in any scope, and looking it up by name would find whatever else
+		// happens to be called that.
+		Node* declared = declaration_at(node, loc);
+		if (declared) return single_ref(declared, entry, current);
+
+		// Only for a name nothing qualifies: `mod::name` is never a local,
+		// and a local shadows anything the index holds under that name.
+		if (symbol.path.len == 0) {
+			Node* local = variable_decl(types, symbol.name);
+			if (local) return single_ref(local, entry, current);
+		}
 	}
 
-	return lookup_symbol(session, current, qualified_symbol_at(node, loc));
+	return lookup_symbol(session, current, symbol);
 }
 
 <*

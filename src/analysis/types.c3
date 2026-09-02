@@ -100,9 +100,13 @@ fn Node* return_type_decl(TypeContext ctx, Node* callable) {
 }
 
 <*
- Declaration of the type a variable in scope was declared with.
+ Declaration of a variable visible at the cursor: a local, a parameter,
+ or a file scope global once sema has put it in the root scope.
+
+ The symbol index only carries top level declarations, so the scope tree
+ is the only place a local or a parameter exists. 
 *>
-fn Node* variable_type(TypeContext ctx, String name) {
+fn Node* variable_decl(TypeContext ctx, String name) {
 	if (!ctx.file || name.len == 0) return null;
 
 	Scope* leaf = core::find_deepest_scope(ctx.file.root_rt_scope, ctx.location);
@@ -111,7 +115,39 @@ fn Node* variable_type(TypeContext ctx, String name) {
 	VariableInfo* info = scope::get_variable(leaf, name);
 	if (!info || !info.node || info.node.kind != VAR_DECL) return null;
 
-	return type_decl_of(ctx, info.node.as(VarDecl).type);
+	return info.node;
+}
+
+<*
+ The type `self` stands for at the cursor.
+
+ It refers to is the associated type in the enclosing signature.
+*>
+fn Node* self_type(TypeContext ctx) {
+	if (!ctx.file || !ctx.file.sf) return null;
+
+	Node* enclosing = core::top_level_at(ctx.file.sf, ctx.location);
+	if (!enclosing) return null;
+
+	String type_name = core::method_target(enclosing);
+	if (type_name.len == 0) return null;
+
+	return find_decl(ctx, type_name, true);
+}
+
+<*
+ Declaration of the type a variable in scope was declared with.
+*>
+fn Node* variable_type(TypeContext ctx, String name) {
+	Node* decl = variable_decl(ctx, name);
+	if (decl && decl.as(VarDecl).type) return type_decl_of(ctx, decl.as(VarDecl).type);
+
+	// A receiver is written `&self`, so it has no type to resolve and sema
+	// does not always put it in the scope tree either. Both roads end at
+	// the associated type of the method being written.
+	if (name == "self") return self_type(ctx);
+
+	return null;
 }
 
 <*

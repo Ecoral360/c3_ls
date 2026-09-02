@@ -1356,12 +1356,46 @@ fn void import_completion_skips_the_files_own_module() => @pool() {
 <*
  A bare name only resolves inside its own module.
 
- So picking `Widget` out of the unqualified list has to insert
- `other::Widget`, while `add`, declared in the file's own module, stays
- as it was typed. The label and filterText stay bare either way: the
- client matches on what the user is typing, not on the path.
+ So picking `from_inner` out of the unqualified list has to insert
+ `inner::from_inner`, while `from_outer`, declared in the file's own
+ module, stays as it was typed. Only the last segment: C3 resolves the
+ shortest unambiguous suffix of an imported path. The label and
+ filterText stay bare either way, because the client matches on what the
+ user is typing, not on the path.
 *>
-fn void global_items_qualify_symbols_from_other_modules() => @pool() {
+fn void global_items_qualify_callables_from_other_modules() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	session.set_file(test_support::OUTER_PATH, test_support::OUTER_SRC);
+	session.set_file(test_support::INNER_PATH, test_support::INNER_SRC);
+
+	String src = "module outer;\n\nfn void here()\n{\n\tint local;\n}\n";
+	session.set_file(TYPING_PATH, src);
+	session.rebuild_index();
+	session.analyze(TYPING_PATH);
+
+	Context ctx = test_support::make_completion_context(&session, TYPING_PATH, test_support::loc_of(src, "int local"));
+
+	List{CompletionItem} items;
+	items.tinit();
+	provide_global(&ctx, &items);
+
+	CompletionItem nested = test_support::item_named(items, "from_inner");
+	test::eq(nested.label, "from_inner");
+	test::eq(nested.insert_text, "inner::from_inner($1);");
+	test::eq(nested.filter_text, "from_inner");
+
+	CompletionItem own = test_support::item_named(items, "from_outer");
+	test::eq(own.label, "from_outer");
+	test::eq(own.insert_text, "from_outer($1);");
+}
+
+<*
+ A type name is written as it stands, wherever it comes from.
+*>
+fn void global_items_leave_type_names_unqualified() => @pool() {
 	LspSession session;
 	session.init(mem);
 	defer session.free();
@@ -1383,41 +1417,8 @@ fn void global_items_qualify_symbols_from_other_modules() => @pool() {
 
 	CompletionItem foreign = test_support::item_named(items, "Widget");
 	test::eq(foreign.label, "Widget");
-	test::eq(foreign.insert_text, "other::Widget");
+	test::eq(foreign.insert_text, "Widget");
 	test::eq(foreign.filter_text, "Widget");
-
-	// fixture declares `add` too, and this file is fixture.
-	CompletionItem own = test_support::item_named(items, "add");
-	test::eq(own.label, "add");
-	test::eq(own.insert_text, "add($1)");
-}
-
-<*
- Only the trailing segment. C3 resolves the shortest unambiguous suffix
- of an imported path, so a deep module reads as `inner::from_inner`, not
- `outer::inner::from_inner`.
-*>
-fn void global_items_qualify_with_the_last_module_segment() => @pool() {
-	LspSession session;
-	session.init(mem);
-	defer session.free();
-
-	session.set_file(test_support::INNER_PATH, test_support::INNER_SRC);
-
-	String src = "module typing;\n\nfn void here()\n{\n\tint local;\n}\n";
-	session.set_file(TYPING_PATH, src);
-	session.rebuild_index();
-	session.analyze(TYPING_PATH);
-
-	Context ctx = test_support::make_completion_context(&session, TYPING_PATH, test_support::loc_of(src, "int local"));
-
-	List{CompletionItem} items;
-	items.tinit();
-	provide_global(&ctx, &items);
-
-	CompletionItem nested = test_support::item_named(items, "from_inner");
-	test::eq(nested.label, "from_inner");
-	test::eq(nested.insert_text, "inner::from_inner($1)");
 }
 
 <*
@@ -1450,7 +1451,7 @@ fn void static_access_items_stay_unqualified() => @pool() {
 
 	CompletionItem offered = test_support::item_named(items, "from_outer");
 	test::eq(offered.label, "from_outer");
-	test::eq(offered.insert_text, "from_outer($1)");
+	test::eq(offered.insert_text, "from_outer($1);");
 }
 <*
  A method is not callable by its bare name.

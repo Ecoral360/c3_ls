@@ -451,3 +451,95 @@ fn void lookup_reference_answers_with_the_resolved_member() => @pool() {
 	Node* bare_node = cursor::node_entry(&entry.sf.ast, bare).node;
 	test::@check(!lookup_reference(&session, test_support::MEMBER_PATH, bare, bare_node).is_empty());
 }
+<*
+ A local and a parameter live in the scope tree and nowhere else.
+
+ The symbol index only carries top level declarations, so goto definition
+ and hover used to answer with nothing at all for the two things most
+ worth asking about.
+*>
+fn void lookup_reference_finds_locals() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+	test_support::setup_members(&session, MEMBER_RIVAL_SRC, MEMBER_SRC);
+
+	FileEntry* entry = session.entry(test_support::MEMBER_PATH);
+
+	// The use, inside `h.get_inner()`.
+	List{SymbolRef} used = test_support::member_reference(&session, test_support::loc_of(MEMBER_SRC, "h.get_inner()"));
+	test::eq(used.len(), 1);
+	test::eq(used[0].owner, entry);
+	test::eq(session.node_signature_text(used[0].node, used[0].owner), "Holder h");
+
+	// And the declaration's own name.
+	List{SymbolRef} declared = test_support::member_reference(&session, test_support::loc_of(MEMBER_SRC, "h;"));
+	test::eq(declared.len(), 1);
+	test::eq(declared[0].node, used[0].node);
+}
+
+<*
+ A struct field is in no scope and not in the index, so the node under
+ the cursor is the only thing that can answer for it - both where it is
+ declared and where it is used.
+*>
+fn void lookup_reference_finds_fields() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+	test_support::setup_members(&session, MEMBER_RIVAL_SRC, MEMBER_SRC);
+
+	FileEntry* entry = session.entry(test_support::MEMBER_PATH);
+
+	// The use, `h.id`.
+	List{SymbolRef} used = test_support::member_reference(&session, test_support::loc_after(MEMBER_SRC, "int b = h."));
+	test::eq(used.len(), 1);
+	test::eq(session.node_signature_text(used[0].node, used[0].owner), "int id");
+
+	List{SymbolRef} declared = test_support::member_reference(&session, test_support::loc_after(MEMBER_SRC, "int "));
+	test::eq(declared.len(), 1);
+	test::eq(session.node_signature_text(declared[0].node, declared[0].owner), "int v");
+	test::eq(declared[0].owner, entry);
+}
+
+<*
+ A receiver is written `&self`, so it has no type of its own to resolve.
+ What it stands for is the associated type of the method being written,
+ which is what makes `self.v` reach Inner's field rather than nothing.
+*>
+fn void member_at_resolves_through_the_receiver() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+	test_support::setup_members(&session, MEMBER_RIVAL_SRC, MEMBER_SRC);
+
+	List{SymbolRef} refs = test_support::member_reference(&session, test_support::loc_after(MEMBER_SRC, "self."));
+	test::eq(refs.len(), 1);
+	test::eq(session.node_signature_text(refs[0].node, refs[0].owner), "int v");
+}
+
+<*
+ node_signature_text answers for a node the index does not own, when the
+ caller says which file it came from.
+
+ A field is not a top level statement, so node_owner has no entry for it
+ and its range means nothing on its own.
+*>
+fn void signature_text_accepts_an_explicit_owner() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+	test_support::setup_members(&session, MEMBER_RIVAL_SRC, MEMBER_SRC);
+
+	FileEntry* entry = session.entry(test_support::MEMBER_PATH);
+	Node* holder     = test_support::find_top_level(&session, test_support::MEMBER_PATH, "Holder");
+	Node* field      = holder.as(StructDecl).fields[0];
+
+	test::eq(session.node_signature_text(field), "");
+	test::eq(session.node_signature_text(field, entry), "int id");
+
+	// A local's initializer is the value, not the declaration.
+	Node* go_decl = test_support::find_top_level(&session, test_support::MEMBER_PATH, "go");
+	Node* first   = go_decl.as(FnDecl).body.as(CompoundStmt).statements[1];
+	test::eq(session.node_signature_text(first, entry), "int a");
+}

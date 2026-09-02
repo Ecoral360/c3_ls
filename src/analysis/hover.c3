@@ -65,6 +65,14 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 	List{SymbolRef} origins = analysis::lookup_reference(&project.session, uri.path, loc, node);
 
 	if (origins.is_empty()) {
+		// An import path names a module, and a module is not a declaration:
+		// there is no node for the index to point at, so nothing else in
+		// the lookup chain can answer for one.
+		String named = cursor::spelling(node, tmem) ?? "";
+		if (named.len > 0 && project.session.ctx.modules.has_key(named)) {
+			return string::tformat("module %s", named);
+		}
+
 		log::error("No valid symbol targeted at this offset context.");
 		return "";
 	}
@@ -76,7 +84,11 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 	foreach (origin : origins) {
 		if (!origin.node || !origin.owner) continue;
 
-		String signature = project.session.node_signature_text(origin.node);
+		// A receiver is written `&self`, which is all the source has to
+		// slice and says nothing about what it is. The type it stands for
+		// is the associated type of the method the cursor is in.
+		String signature = receiver_signature(sf, loc, origin.node);
+		if (signature.len == 0) signature = project.session.node_signature_text(origin.node, origin.owner);
 		if (signature.len == 0) continue;
 
 		// The signature is the part that is always there. A doc comment
@@ -96,6 +108,21 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 	return string::tjoin(output.array_view(), "\n---\n");
 
 	// return cursor::spelling(node, tmem);
+}
+
+<*
+ `Type* self` for a method receiver, empty for anything else.
+*>
+fn String receiver_signature(SourceFile* sf, Location loc, Node* node) @private {
+	if (!node || node.kind != VAR_DECL) return "";
+
+	VarDecl* decl = node.as(VarDecl);
+	if (!decl.var_flags.is_self) return "";
+
+	String type_name = core::method_target(core::top_level_at(sf, loc));
+	if (type_name.len == 0) return "";
+
+	return string::tformat("%s%s self", type_name, decl.var_flags.is_self_by_ref ? "*" : "");
 }
 
 fn String get_keyword_docs(TokenKind kind) {

@@ -202,7 +202,7 @@ fn Location loc_after(String text, String needle) {
 	return offset_to_location(text, idx + needle.len);
 }
 
-fn Location offset_to_location(String text, sz offset) @local {
+fn Location offset_to_location(String text, sz offset) {
 	int line   = 0;
 	int column = 0;
 
@@ -498,6 +498,16 @@ fn void setup_members(LspSession* session, String rival_src, String member_src) 
 	session.set_file(MEMBER_PATH, member_src);
 	session.rebuild_index();
 	session.analyze(MEMBER_PATH);
+}
+
+<*
+ Resolve the reference at `loc` the way goto definition and hover do.
+*>
+fn List{SymbolRef} member_reference(LspSession* session, Location loc) {
+	FileEntry* entry = session.entry(MEMBER_PATH);
+	Node* node       = cursor::node_entry(&entry.sf.ast, loc).node;
+
+	return analysis::lookup_reference(session, MEMBER_PATH, loc, node);
 }
 
 fn TypeContext member_types(LspSession* session) {
