@@ -3,6 +3,8 @@ module lsp::analysis::completion;
 import analyzer::core;
 import analyzer::cursor;
 import analyzer::sema;
+import analyzer::sema::scope;
+import analyzer::lexer;
 
 import lsp::core;
 
@@ -10,6 +12,36 @@ import std::collections::list;
 import std::collections::map;
 
 import uri;
+
+struct Context {
+	Uri uri;
+	LspPosition position;
+	Location location;
+	sz offset;
+	DStringPool* dstring_pool;
+	LspSession* session;
+	FileEntry* file;
+	SourceFile* sf;
+	Module* mod;
+	Allocator allocator;
+
+	LspAccessKind access;
+	// stores the last Type before the typed thing.
+	// i.e : in `a.b.c`, base_node is the node corresponding to where the type of `b` is defined
+	Node* base_node;
+	String base_identifier; // Stores 'variable' or 'Type' string found before the operator
+	String prefix;
+
+	CompletionContextKind scope;
+	Node* leaf_node;
+	Node* top_level_node;
+	<*
+	 Contains all tokens of the current file
+	*>
+	List{Token} tokens;
+
+	Location base_location;
+}
 
 fn void provide_keywords(Context* ctx, List{CompletionItem}* items) {
 	if (ctx.access != NONE) return;
@@ -39,7 +71,7 @@ fn void provide_keywords(Context* ctx, List{CompletionItem}* items) {
 					.label = kw.name,
 					.documentation = { .value = kw.docs },
 					.kind = KEYWORD,
-					.sort_text = string::tformat("0010_%s", kw.name),
+					.sort_text = ctx.dstring_pool.cat("0010_", kw.name),
 				}
 			);
 		}
@@ -72,21 +104,21 @@ fn void add_symbol_completion(
 		case FN_DECL:
 			item_kind = FUNCTION;
 			type_desc = "fn";
-			insert_text = string::tformat("%s($1)", insert_text);
+			insert_text = ctx.dstring_pool.cat(insert_text, "($1)");
 			format = SNIPPET;
 			break;
 
 		case MACRO_DECL:
 			item_kind = FUNCTION;
 			type_desc = "macro";
-			insert_text = string::tformat("%s($1)", insert_text);
+			insert_text = ctx.dstring_pool.cat(insert_text, "($1)");
 			format = SNIPPET;
 			break;
 
 		case INTERFACE_DECL:
 			item_kind = INTERFACE;
 			type_desc = "interface";
-			insert_text = string::tformat("%s($1)", insert_text);
+			insert_text = ctx.dstring_pool.cat(insert_text, "($1)");
 			format = SNIPPET;
 			break;
 
@@ -118,7 +150,7 @@ fn void add_symbol_completion(
 			break;
 	}
 
-	String detail_string = string::tformat("%s via %s", type_desc, base_identifier);
+	String detail_string = ctx.dstring_pool.cat(type_desc, " via ", base_identifier);
 
 	String filter_text = symbol_name;
 	if (filter_text.len > 0 && filter_text[0] == '@') {
@@ -133,8 +165,8 @@ fn void add_symbol_completion(
 			.insert_text = insert_text,
 			.insert_text_format = format,
 			.filter_text = filter_text,
-			.sort_text = string::tformat("0005_%s", symbol_name),
-			.data = string::tformat("%d;%s", (ulong)node.id, symbol_name)
+			.sort_text = ctx.dstring_pool.cat("0005_", symbol_name),
+			.data = ctx.dstring_pool.format("%d;%s", (ulong)node.id, symbol_name)
 		}
 	);
 }

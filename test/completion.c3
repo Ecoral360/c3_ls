@@ -388,7 +388,11 @@ fn void add_symbol_completion_ignores_null_nodes() {
 // ---------------------------------------------------------------------
 
 fn void provide_keywords_filters_by_scope() {
-	Context ctx = { .scope = CompletionContextKind.GLOBAL, .access = LspAccessKind.NONE };
+	Context ctx = {
+		.scope = CompletionContextKind.GLOBAL,
+		.access = LspAccessKind.NONE,
+		.dstring_pool = test_support::test_pool(),
+	};
 
 	List{CompletionItem} items;
 	items.tinit();
@@ -401,7 +405,11 @@ fn void provide_keywords_filters_by_scope() {
 			.is_top_level(), "'%s' is not legal at file scope", item.label);
 	}
 
-	Context body = { .scope = CompletionContextKind.EXECUTION, .access = LspAccessKind.NONE };
+	Context body = {
+		.scope = CompletionContextKind.EXECUTION,
+		.access = LspAccessKind.NONE,
+		.dstring_pool = test_support::test_pool(),
+	};
 	List{CompletionItem} body_items;
 	body_items.tinit();
 	provide_keywords(&body, &body_items);
@@ -416,7 +424,12 @@ fn void provide_keywords_filters_by_scope() {
 }
 
 fn void provide_keywords_filters_by_prefix() {
-	Context ctx = { .scope = CompletionContextKind.GLOBAL, .access = LspAccessKind.NONE, .prefix = "st" };
+	Context ctx = {
+		.scope = CompletionContextKind.GLOBAL,
+		.access = LspAccessKind.NONE,
+		.prefix = "st",
+		.dstring_pool = test_support::test_pool(),
+	};
 
 	List{CompletionItem} items;
 	items.tinit();

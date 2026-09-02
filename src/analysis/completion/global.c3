@@ -26,7 +26,7 @@ fn void provide_global(Context* ctx, List{CompletionItem}* items) {
 		do SCOPE: {
 			if (refs.is_empty()) break SCOPE;
 
-			if (ctx.prefix.len > 0 && !symbol_name.contains(ctx.prefix)) {
+			if (ctx.prefix.len > 0 && !symbol_name.starts_with(ctx.prefix)) {
 				break SCOPE;
 			}
 

@@ -12,6 +12,29 @@ struct CompletionOptions @DStruct({ .rename_all = CAMEL_CASE }) {
 	}
 }
 
+$expand(dessert::@derive(SignatureHelpOptions));
+struct SignatureHelpOptions {
+	String[] triggerCharacters;
+	String[] retriggerCharacters;
+}
+
+$expand(dessert::@derive(SemanticTokensLegend));
+struct SemanticTokensLegend {
+	String[] tokenTypes;
+	String[] tokenModifiers;
+}
+
+$expand(dessert::@derive(SemanticTokensOptions));
+struct SemanticTokensOptions {
+	SemanticTokensLegend legend;
+	bool full;
+}
+
+$expand(dessert::@derive(RenameOptions));
+struct RenameOptions {
+	bool prepareProvider;
+}
+
 <*
 	https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#serverCapabilities
 *>
@@ -21,4 +44,14 @@ struct LspServerCapabilities @DStruct({ .rename_all = CAMEL_CASE }) {
 	CompletionOptions completion_provider;
 	bool hover_provider;
 	bool definition_provider;
+	SignatureHelpOptions signature_help_provider;
+	bool references_provider;
+	RenameOptions rename_provider;
+	SemanticTokensOptions semantic_tokens_provider;
+	bool document_symbol_provider;
+	bool workspace_symbol_provider;
+	bool inlay_hint_provider;
+	bool folding_range_provider;
+	bool document_formatting_provider;
+	bool document_range_formatting_provider;
 }

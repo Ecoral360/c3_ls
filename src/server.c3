@@ -5,6 +5,7 @@ import lsp::translator;
 import lsp::msg_handler;
 import lsp::core::config;
 import lsp::core::logger;
+import lsp::core::dstring_pool;
 import std::io;
 import std::core::log;
 import std::thread;
@@ -70,6 +71,8 @@ fn void loop() {
 		if (is_ready) {
 			project.update();
 		}
+
+		project.dstring_pool.reset();
 	};
 }
 

@@ -4,6 +4,7 @@ import analyzer::core;
 import analyzer::cursor;
 import analyzer::sema;
 import analyzer::sema::scope;
+import analyzer::lexer;
 
 import std::collections::list;
 import std::collections::map;
@@ -11,36 +12,7 @@ import std::collections::set;
 
 import lsp::core;
 import uri;
-import analyzer::lexer;
 
-struct Context {
-	Uri uri;
-	LspPosition position;
-	Location location;
-	sz offset;
-	LspSession* session;
-	FileEntry* file;
-	SourceFile* sf;
-	Module* mod;
-	Allocator allocator;
-
-	LspAccessKind access;
-	// stores the last Type before the typed thing.
-	// i.e : in `a.b.c`, base_node is the node corresponding to where the type of `b` is defined
-	Node* base_node;
-	String base_identifier; // Stores 'variable' or 'Type' string found before the operator
-	String prefix;
-
-	CompletionContextKind scope;
-	Node* leaf_node;
-	Node* top_level_node;
-	<*
-	 Contains all tokens of the current file
-	*>
-	List{Token} tokens;
-
-	Location base_location;
-}
 
 <*
  The session keeps every file's lexer alive, so the token list is already
@@ -124,7 +96,7 @@ fn CompletionItem[] finish(List{CompletionItem}* items) {
 		if (item.insert_text_format == (InsertTextFormat)0) item.insert_text_format = PLAIN_TEXT;
 	}
 
-	return items.array_view();
+	return items.size > 200 ? items.array_view()[:200] : items.array_view();
 }
 
 fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
@@ -135,6 +107,7 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 		.position = pos,
 		.session = &project.session,
 		.allocator = tmem,
+		.dstring_pool = &project.dstring_pool,
 	};
 
 	ctx.location = { .line = (int)pos.line, .column = (int)pos.character };
@@ -236,9 +209,9 @@ fn void provide_imports(Context* ctx, List{CompletionItem}* items) {
 					.detail = "Module",
 					.insert_text = tail,
 					.filter_text = tail,
-					.sort_text = string::tformat("0001_%s", name),
+					.sort_text = ctx.dstring_pool.cat("0001_", name),
 					.documentation = {
-						.value = string::tformat("Import the `%s` module into this file context.", name)
+						.value = ctx.dstring_pool.cat("Import the `", name, "` module into this file context.")
 					}
 				}
 			);

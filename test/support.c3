@@ -6,6 +6,7 @@ import analyzer::cursor;
 import lsp::analysis;
 import lsp::analysis::completion;
 import lsp::core;
+import lsp::core::dstring_pool;
 
 import std::collections::list;
 
@@ -218,6 +219,17 @@ fn Location offset_to_location(String text, sz offset) @local {
 }
 
 <*
+ A pool with the lifetime completion expects.
+
+ The server hands completion a pool that lives for one request and is
+ reset between messages; tmem is that lifetime here.
+*>
+fn DStringPool* test_pool() {
+	DStringPool* pool = alloc::new(tmem, DStringPool);
+	return pool.init(tmem);
+}
+
+<*
  Build a completion Context the way completion::resolve does.
 
  Kept in step with src/analysis/completion/completion.c3 on purpose: the
@@ -227,10 +239,13 @@ fn Location offset_to_location(String text, sz offset) @local {
  @require session.entry(path) != null : "the file has to be loaded first"
 *>
 fn Context make_completion_context(LspSession* session, String path, Location loc) {
+	DStringPool* pool = test_pool();
+
 	Context ctx = {
 		.session = session,
 		.allocator = tmem,
 		.location = loc,
+		.dstring_pool = pool,
 	};
 
 	ctx.file = session.entry(path);

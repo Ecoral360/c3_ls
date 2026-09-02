@@ -40,6 +40,7 @@ struct LspProject {
 	ProjectConfig config;
 	HashMap{String, ManifestConfig} manifests;
 	Allocator allocator;
+	DStringPool dstring_pool;
 }
 
 fn void LspProject.init(&self, Allocator allocator) {
@@ -47,6 +48,7 @@ fn void LspProject.init(&self, Allocator allocator) {
 	self.files.init(allocator);
 	self.process_queue.init(allocator);
 	self.session.init(allocator);
+	self.dstring_pool.init(allocator);
 }
 
 fn void LspProject.free(&self) {
@@ -62,9 +64,15 @@ fn void LspProject.free(&self) {
 		conf.free(self.allocator);
 	};
 	self.manifests.free();
+	self.dstring_pool.free();
 }
 
-fn void LspProject.open_file(&self, TextDocumentItem document, bool is_std_lib = false) {
+<*
+ Start tracking a document.
+
+ @param from_disk : "true for a workspace scan, which carries no text and is read off disk; false for a didOpen, which carries the editor's buffer"
+*>
+fn void LspProject.open_file(&self, TextDocumentItem document, bool from_disk = false) {
 	String raw_uri = document.uri;
 
 	log::debug("Registering document stream via raw tracking token: %s", raw_uri);
@@ -79,9 +87,34 @@ fn void LspProject.open_file(&self, TextDocumentItem document, bool is_std_lib =
 	String lookup_key = file_uri.path;
 	log::warn("Opening file: %s", lookup_key);
 
-	if (self.files.has_key(lookup_key)) {
-		log::warn("File %s is already tracking in workspace", lookup_key);
-		file_uri.free();
+	if (try LspFile* tracked = self.files.get(lookup_key)) {
+		defer file_uri.free();
+
+		// The workspace scan reaches a project's own sources before the
+		// editor announces them, so by the time didOpen arrives the file is
+		// already tracked - against what is on disk. Dropping the
+		// notification left that stale copy in place until the first edit,
+		// which is why completion came back empty on a freshly opened file.
+		// A second scan must not clobber the buffer, but a didOpen has to
+		// win: its text is what the user is looking at.
+		if (from_disk) {
+			log::warn("File %s is already tracking in workspace", lookup_key);
+			return;
+		}
+
+		if (tracked.text) alloc::free(self.allocator, tracked.text);
+		tracked.text = document.text.copy(self.allocator);
+		tracked.version = 1;
+
+		// lookup_key points into the Uri freed above; the tracked file owns
+		// an identical path that outlives the queue.
+		self.process_queue.push(
+			{
+				.path = tracked.uri.path,
+				.text = tracked.text,
+				.from_disk = false,
+			}
+		);
 		return;
 	}
 
@@ -95,9 +128,9 @@ fn void LspProject.open_file(&self, TextDocumentItem document, bool is_std_lib =
 	self.files[lookup_key] = lsp_file;
 
 	QueuedFile queued = {
-		.path = lookup_key,
+		.path = lsp_file.uri.path,
 		.text = lsp_file.text,
-		.from_disk = is_std_lib,
+		.from_disk = from_disk,
 	};
 
 	self.process_queue.push(queued);

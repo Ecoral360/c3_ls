@@ -66,6 +66,13 @@ fn void LspLogger.log(
 	String fmt,
 	any[] args
 ) @dynamic {
+	// Before formatting, not after. appendf runs the C3 formatter over the
+	// whole message a character at a time, and the completion handler logs
+	// its entire JSON response at debug level - tens of kilobytes per
+	// keystroke that nothing was ever going to read. The file, when there
+	// is one, still takes every priority: it is there to catch crashes.
+	if (priority < priority_level && !logger::file.file) return;
+
 	@stack_mem(256 + 64 ; Allocator mem) {
 		DString str;
 		str.init(mem, 256);

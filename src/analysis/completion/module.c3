@@ -48,7 +48,7 @@ fn void provide_module_paths(Context* ctx, List{CompletionItem}* items) {
 					.label = next_segment,
 					.kind = MODULE,
 					.detail = is_leaf ? "Module" : "Namespace",
-					.sort_text = string::tformat("0020_%s", next_segment)
+					.sort_text = ctx.dstring_pool.cat("0020_", next_segment)
 				}
 			);
 		};

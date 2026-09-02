@@ -52,6 +52,7 @@ fn int main(String[] args) {
 		&cli.send_crash_reports,
 		"h*",
 		"help*",
+		"Print this message",
 		&help
 	);
 

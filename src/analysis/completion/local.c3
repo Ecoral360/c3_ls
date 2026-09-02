@@ -48,25 +48,30 @@ fn void provide_scope_locals(Scope* leaf, Context* ctx, List{CompletionItem}* it
 		switch (true) {
 			case decl.var_flags.is_const:
 				kind = CONSTANT;
-				details = string::tformat("(constant) %s", type_name);
+				details = ctx.dstring_pool.cat("(constant) ", type_name);
 				break;
 			case decl.var_kind == VAR_GLOBAL && !symbol.is_local:
 				kind = VARIABLE;
-				details = string::tformat("(global) %s", type_name);
+				details = ctx.dstring_pool.cat("(global) ", type_name);
 				break;
 			case decl.var_kind == VAR_PARAM:
 				kind = VARIABLE;
-				details = string::tformat("(param) %s", type_name);
+				details = ctx.dstring_pool.cat("(param) ", type_name);
 				break;
 			case decl.var_kind == VAR_LOCAL:
 				kind = VARIABLE;
-				details = string::tformat("(local) %s", type_name);
+				details = ctx.dstring_pool.cat("(local) ", type_name);
 				break;
 			default:
 				kind = VARIABLE;
-				details = string::tformat("(local) %s", type_name);
+				details = ctx.dstring_pool.cat("(local) ", type_name);
 		}
 
-		items.push({ .label = name, .kind = kind, .detail = details, .sort_text = string::tformat("0001_%s", name) });
+		items.push({ 
+			.label = name, 
+			.kind = kind, 
+			.detail = details, 
+			.sort_text = ctx.dstring_pool.cat("0001_", name) 
+		});
 	}
 }
