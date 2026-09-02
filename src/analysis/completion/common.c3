@@ -84,7 +84,7 @@ fn bool name_matches_fuzzy(String symbol_name, String prefix) {
 			if (idx + 1 == symbol_name.len) {
 				symbol_name = "";
 			} else {
-				symbol_name = symbol_name[idx..];
+				symbol_name = symbol_name[idx + 1..];
 			}
 		} else {
 			return false;
