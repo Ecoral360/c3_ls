@@ -61,6 +61,12 @@ fn void provide_global(Context* ctx, List{CompletionItem}* items) {
 			uint name_rank = match_rank(symbol_name, ctx.prefix);
 
 			foreach (SymbolRef ref : refs) {
+				// A method is only reachable through a value or a type, so
+				// it belongs to member completion. In the bare name list it
+				// is noise: `init` would offer every type's init with
+				// nothing to tell them apart and nothing to call them on.
+				if (ref.is_method) continue;
+
 				if (!should_include_node(ref.node, ref.module_name, current_mod, types_only)) {
 					continue;
 				}
@@ -93,15 +99,50 @@ fn void provide_global(Context* ctx, List{CompletionItem}* items) {
 
 	for (sz i = 0; i < kept; i++) {
 		GlobalCandidate candidate = candidates[i];
-		add_symbol_completion(ctx, items, candidate.name, candidate.node, candidate.module_name, ctx.prefix);
+		add_symbol_completion(
+			ctx,
+			items,
+			candidate.name,
+			candidate.node,
+			candidate.module_name,
+			ctx.prefix,
+			module_qualifier(ctx, candidate.module_name)
+		);
 	}
+}
+
+<*
+ The path a symbol declared in `module_name` needs written in front of it.
+
+ A bare name only resolves inside its own module, so picking `info` out of
+ the unqualified list has to insert `log::info`. Nothing is added when the
+ file already declares that module, and nothing when the cursor sits after
+ a `::` - that path never reaches provide_global, it is answered by
+ provide_static_access with the prefix already on the line.
+
+ Only the last segment: C3 resolves the shortest unambiguous suffix of an
+ imported path, so this writes what the code would say rather than the
+ whole `std::core::log::info`.
+*>
+fn String module_qualifier(Context* ctx, String module_name) @local {
+	if (module_name.len == 0) return "";
+	if (ctx.mod && module_name == ctx.mod.name) return "";
+
+	// The sigil stays in front of a macro name, so a module path has
+	// nowhere to go that would not read as `@log::twice`.
+	if (ctx.prefix.starts_with("@")) return "";
+
+	String segment = module_name;
+	if (try sz separator = module_name.rindex_of("::")) segment = module_name[separator + 2..];
+
+	return ctx.dstring_pool.cat(segment, "::");
 }
 
 <*
  How closely `name` answers what was typed.
 
  name_matches_fuzzy accepts a subsequence, which over a whole workspace
- accepts a great deal: "ad" reaches `list_ensure_capacity`. Everything it
+ accepts a great deal: "ay" reaches `list_ensure_capacity`. Everything it
  lets through is offered, but an exact hit and a scattered one must not
  compete for the same slot.
 *>

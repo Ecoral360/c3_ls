@@ -43,6 +43,13 @@ struct SymbolRef {
 	Node* node;
 	String module_name;
 	FileEntry* owner;
+	<*
+	 True for a declaration with an associated type, so completion can
+	 keep methods out of the bare name list. Recorded here because index
+	 works it out anyway, and re-deriving it per candidate would mean
+	 walking a TypeExpr for every symbol in the workspace.
+	*>
+	bool is_method;
 }
 
 <*
@@ -480,13 +487,18 @@ fn void LspSession.index(&self, String path) => @pool() {
 		String name = cursor::spelling(node, tmem) ?? "";
 		if (name.len == 0) continue;
 
-		SymbolRef ref    = { .node = node, .module_name = current_mod.name, .owner = entry };
+		String method_of = method_target(node);
+		SymbolRef ref = {
+			.node = node,
+			.module_name = current_mod.name,
+			.owner = entry,
+			.is_method = method_of.len > 0,
+		};
 		String qualified = qualified_name(current_mod.name, name);
 
 		self.push_symbol(&self.by_name, name, ref);
 		self.push_symbol(&self.by_module, qualified, ref);
 
-		String method_of = method_target(node);
 		if (method_of.len > 0) self.push_symbol(&self.by_method, method_of, ref);
 
 		// The keys are recorded so unindex can find these buckets again.

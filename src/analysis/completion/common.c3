@@ -94,21 +94,36 @@ fn bool name_matches_fuzzy(String symbol_name, String prefix) {
 	return true;
 }
 
+fn bool node_kind_needs_prefix(NodeKind kind) => !(kind == STRUCT_DECL || kind == ENUM_DECL || kind == INTERFACE_DECL);
+fn bool type_is_void(
+	TypeExpr* type_expr
+) => type_expr.type_kind == TYPE_IDENTIFIER && type_expr.unresolved.name.text == "void";
+
+<*
+ @param qualifier : "module path to write in front of the name, e.g. \"log::\"; empty when the name stands on its own"
+*>
 fn void add_symbol_completion(
 	Context* ctx,
 	List{CompletionItem}* items,
 	String symbol_name,
 	Node* node,
 	String base_identifier,
-	String prefix = ""
+	String prefix = "",
+	String qualifier = ""
 ) {
 	if (!node) return;
 
-	CompletionItemKind item_kind = CompletionItemKind.VALUE;
+	CompletionItemKind item_kind = VALUE;
 	String type_desc             = "Symbol";
 	String insert_text           = symbol_name;
 	if (prefix.len > 0 && prefix.starts_with("@")) {
 		insert_text = symbol_name.strip_prefix("@");
+	}
+
+	// Ahead of the snippet suffixes below, so a function comes out as
+	// `log::info($1)` rather than `log::` in front of a finished snippet.
+	if (qualifier.len > 0 && node_kind_needs_prefix(node.kind)) {
+		insert_text = ctx.dstring_pool.cat(qualifier, insert_text);
 	}
 
 	InsertTextFormat format = PLAIN_TEXT;
@@ -117,50 +132,44 @@ fn void add_symbol_completion(
 		case FN_DECL:
 			item_kind = FUNCTION;
 			type_desc = "fn";
-			insert_text = ctx.dstring_pool.cat(insert_text, "($1)");
+			FnDecl* decl = node.as(FnDecl);
+			bool is_void = type_is_void(decl.ret_type.as(TypeExpr));
+			insert_text = ctx.dstring_pool.cat(insert_text, "($1)", is_void ? ";" : "");
 			format = SNIPPET;
-			break;
 
 		case MACRO_DECL:
 			item_kind = FUNCTION;
 			type_desc = "macro";
-			insert_text = ctx.dstring_pool.cat(insert_text, "($1)");
+			MacroDecl* decl = node.as(MacroDecl);
+			bool is_void = type_is_void(decl.ret_type.get().as(TypeExpr)) ?? false;
+			insert_text = ctx.dstring_pool.cat(insert_text, "($1)", is_void ? ";" : "");
 			format = SNIPPET;
-			break;
 
 		case INTERFACE_DECL:
 			item_kind = INTERFACE;
 			type_desc = "interface";
 			insert_text = ctx.dstring_pool.cat(insert_text, "($1)");
 			format = SNIPPET;
-			break;
 
 		case STRUCT_DECL:
 			item_kind = STRUCT;
 			type_desc = "struct";
-			break;
 
 		case ENUM_DECL:
 			item_kind = ENUM;
 			type_desc = "enum";
-			break;
 
 		case VAR_DECL:
-
-			{
-				VarDecl* decl = node.as(VarDecl);
-				if (decl.var_flags.is_const) {
-					item_kind = CONSTANT;
-					type_desc = "constant";
-					break;
-				}
-
-				item_kind = VARIABLE;
-				type_desc = "global var";
+			VarDecl* decl = node.as(VarDecl);
+			if (decl.var_flags.is_const) {
+				item_kind = CONSTANT;
+				type_desc = "constant";
 				break;
 			}
+
+			item_kind = VARIABLE;
+			type_desc = "global var";
 		default:
-			break;
 	}
 
 	String detail_string = ctx.dstring_pool.cat(type_desc, " via ", base_identifier);

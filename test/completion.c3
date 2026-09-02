@@ -1349,3 +1349,157 @@ fn void import_completion_skips_the_files_own_module() => @pool() {
 	test::@check(!test_support::has(offered, "outer"), "the file's own module was offered: %s", offered);
 	test::@check(test_support::has(offered, "outer::inner"), "a sibling module is still importable: %s", offered);
 }
+// ---------------------------------------------------------------------
+// Module qualification of the inserted text
+// ---------------------------------------------------------------------
+
+<*
+ A bare name only resolves inside its own module.
+
+ So picking `Widget` out of the unqualified list has to insert
+ `other::Widget`, while `add`, declared in the file's own module, stays
+ as it was typed. The label and filterText stay bare either way: the
+ client matches on what the user is typing, not on the path.
+*>
+fn void global_items_qualify_symbols_from_other_modules() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	session.set_file(test_support::FIXTURE_PATH, test_support::FIXTURE_SRC);
+	session.set_file(test_support::OTHER_PATH, test_support::OTHER_SRC);
+	session.rebuild_index();
+	session.analyze(test_support::FIXTURE_PATH);
+
+	Context ctx = test_support::make_completion_context(
+		&session,
+		test_support::FIXTURE_PATH,
+		test_support::loc_of(test_support::FIXTURE_SRC, "int sum")
+	);
+
+	List{CompletionItem} items;
+	items.tinit();
+	provide_global(&ctx, &items);
+
+	CompletionItem foreign = test_support::item_named(items, "Widget");
+	test::eq(foreign.label, "Widget");
+	test::eq(foreign.insert_text, "other::Widget");
+	test::eq(foreign.filter_text, "Widget");
+
+	// fixture declares `add` too, and this file is fixture.
+	CompletionItem own = test_support::item_named(items, "add");
+	test::eq(own.label, "add");
+	test::eq(own.insert_text, "add($1)");
+}
+
+<*
+ Only the trailing segment. C3 resolves the shortest unambiguous suffix
+ of an imported path, so a deep module reads as `inner::from_inner`, not
+ `outer::inner::from_inner`.
+*>
+fn void global_items_qualify_with_the_last_module_segment() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	session.set_file(test_support::INNER_PATH, test_support::INNER_SRC);
+
+	String src = "module typing;\n\nfn void here()\n{\n\tint local;\n}\n";
+	session.set_file(TYPING_PATH, src);
+	session.rebuild_index();
+	session.analyze(TYPING_PATH);
+
+	Context ctx = test_support::make_completion_context(&session, TYPING_PATH, test_support::loc_of(src, "int local"));
+
+	List{CompletionItem} items;
+	items.tinit();
+	provide_global(&ctx, &items);
+
+	CompletionItem nested = test_support::item_named(items, "from_inner");
+	test::eq(nested.label, "from_inner");
+	test::eq(nested.insert_text, "inner::from_inner($1)");
+}
+
+<*
+ A path already on the line must not be written twice.
+
+ `outer::` is answered by provide_static_access, which never reaches
+ provide_global, so the item it builds carries the bare name.
+*>
+fn void static_access_items_stay_unqualified() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	session.set_file(test_support::OUTER_PATH, test_support::OUTER_SRC);
+
+	String src = "module typing;\n\nimport outer;\n\nfn void here()\n{\n\touter::\n}\n";
+	session.set_file(TYPING_PATH, src);
+	session.rebuild_index();
+	session.analyze(TYPING_PATH);
+
+	Context ctx = test_support::make_completion_context(
+		&session,
+		TYPING_PATH,
+		test_support::loc_after(src, "\touter::")
+	);
+
+	List{CompletionItem} items;
+	items.tinit();
+	provide_member_access(&ctx, &items);
+
+	CompletionItem offered = test_support::item_named(items, "from_outer");
+	test::eq(offered.label, "from_outer");
+	test::eq(offered.insert_text, "from_outer($1)");
+}
+<*
+ A method is not callable by its bare name.
+
+ `reset` only means something written after a Holder, so offering it in
+ the unqualified list gives the user a name that cannot compile - and in
+ a real workspace `init` alone matches dozens of unrelated types.
+*>
+fn void global_items_leave_methods_to_member_access() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String src = METHOD_SRC.treplace("PLACEHOLDER", "int local;");
+	session.set_file("/virtual/typed.c3", src);
+	session.rebuild_index();
+	session.analyze("/virtual/typed.c3");
+
+	Context ctx = test_support::make_completion_context(
+		&session,
+		"/virtual/typed.c3",
+		test_support::loc_of(src, "int local")
+	);
+	test::eq(ctx.scope, CompletionContextKind.EXECUTION);
+
+	List{CompletionItem} items;
+	items.tinit();
+	provide_global(&ctx, &items);
+
+	test::@check(test_support::has_label(items, "go"), "a plain function is missing");
+	test::@check(test_support::has_label(items, "Holder"), "a type is missing");
+
+	test::@check(!test_support::has_label(items, "reset"), "a method leaked into the bare name list");
+	test::@check(!test_support::has_label(items, "get_inner"), "a method leaked into the bare name list");
+	test::@check(!test_support::has_label(items, "value"), "a method leaked into the bare name list");
+	test::@check(!test_support::has_label(items, "@doubled"), "a macro method leaked into the bare name list");
+}
+
+<*
+ The same methods are still what member access is for.
+*>
+fn void member_access_still_offers_methods() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] offered = test_support::member_labels_of(&session, METHOD_SRC, "h.");
+
+	test::@check(test_support::has(offered, "reset"), "the method is missing after a '.': %s", offered);
+	test::@check(test_support::has(offered, "get_inner"), "the method is missing after a '.': %s", offered);
+	test::@check(test_support::has(offered, "id"), "the field is missing after a '.': %s", offered);
+}

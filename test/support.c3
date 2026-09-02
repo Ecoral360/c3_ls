@@ -279,6 +279,16 @@ fn lsp::Keywords keyword_named(String name) {
 }
 
 <*
+ The completion item labelled `label` in `items`, or the zero item.
+*>
+fn CompletionItem item_named(List{CompletionItem} items, String label) {
+	foreach (CompletionItem item : items) {
+		if (item.label == label) return item;
+	}
+	return { };
+}
+
+<*
  True when `items` carries a completion labelled `label`.
 *>
 fn bool has_label(List{CompletionItem} items, String label) {
