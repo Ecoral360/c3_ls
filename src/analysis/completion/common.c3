@@ -115,12 +115,11 @@ fn bool type_is_void(
 	TypeExpr* type_expr
 ) => type_expr.type_kind == TYPE_IDENTIFIER && type_expr.unresolved.name.text == "void";
 
-fn String call_cursor(NodeArray params) {
+fn String call_cursor(NodeArray params, bool is_method) {
 	if (params.len == 0) return "";
 
 	if (params.len == 1) {
-		VarDecl* param = params[0].as(VarDecl);
-		if (param.var_flags.is_self) return "";
+		return is_method ? "" : "$1";
 	}
 
 	return "$1";
@@ -161,7 +160,7 @@ fn void add_symbol_completion(
 			type_desc = "fn";
 			FnDecl* decl = node.as(FnDecl);
 
-			String cursor = call_cursor(decl.params);
+			String cursor = call_cursor(decl.params, decl.associated_type != null);
 
 			bool is_void = type_is_void(decl.ret_type.as(TypeExpr));
 			insert_text = ctx.dstring_pool.cat(insert_text, "(", cursor, ")", is_void ? ";" : "");
@@ -171,10 +170,9 @@ fn void add_symbol_completion(
 			item_kind = FUNCTION;
 			type_desc = "macro";
 			MacroDecl* decl = node.as(MacroDecl);
-			String cursor = call_cursor(decl.params);
+			String cursor = call_cursor(decl.params, (Node*) decl.associated_type != null);
 
 			if (decl.body) {
-				bool is_void = type_is_void(decl.ret_type.get().as(TypeExpr)) ?? false;
 				DString body_params_str;
 				body_params_str.tinit();
 				if (decl.body_params) {
@@ -193,8 +191,7 @@ fn void add_symbol_completion(
 					body_params_str.str_view(),
 					") {",
 					cursor.len == 0 ? "$1" : "$2",
-					"}",
-					is_void ? ";" : ""
+					"};",
 				);
 			} else {
 				bool is_void = type_is_void(decl.ret_type.get().as(TypeExpr)) ?? false;
