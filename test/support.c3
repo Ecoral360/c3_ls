@@ -605,6 +605,94 @@ fn String[] named_args_for(LspSession* session, String typed) {
 	return labels.to_tarray();
 }
 
+const String STRUCT_INIT_SRC = `module inits;
+
+import std::collections::list;
+
+struct Nested
+{
+	int depth;
+	int weight;
+}
+
+struct Boxed
+{
+	Nested inner;
+}
+
+struct Point
+{
+	int x;
+	int y;
+	Nested origin;
+	Boxed wrapped;
+}
+
+fn void go()
+{
+	int local_thing = 1;
+	PLACEHOLDER
+}
+`;
+
+const String STRUCT_INIT_PATH = "/virtual/inits.c3";
+
+<*
+ The field designators offered with `typed` written on the PLACEHOLDER
+ line, paired with what picking one inserts.
+*>
+fn String[] init_fields_for(LspSession* session, String typed) {
+	String text = STRUCT_INIT_SRC.treplace("PLACEHOLDER", typed);
+	load(session, STRUCT_INIT_PATH, text);
+
+	Context ctx = make_completion_context(session, STRUCT_INIT_PATH, placeholder_cursor(STRUCT_INIT_SRC, text, typed));
+
+	List{CompletionItem} items;
+	items.tinit();
+	completion::provide_struct_init(&ctx, &items);
+
+	List{String} labels;
+	labels.tinit();
+	foreach (CompletionItem item : items) labels.push(item.label);
+
+	return labels.to_tarray();
+}
+
+<*
+ True when provide_struct_init locks the completion to field names.
+*>
+fn bool init_consumes(LspSession* session, String typed) {
+	String text = STRUCT_INIT_SRC.treplace("PLACEHOLDER", typed);
+	load(session, STRUCT_INIT_PATH, text);
+
+	Context ctx = make_completion_context(session, STRUCT_INIT_PATH, placeholder_cursor(STRUCT_INIT_SRC, text, typed));
+
+	List{CompletionItem} items;
+	items.tinit();
+
+	return completion::provide_struct_init(&ctx, &items);
+}
+
+<*
+ Field designators offered for `typed`, in a source of the caller's own.
+*>
+fn String[] generic_init_fields(LspSession* session, String src, String typed) {
+	String text = src.treplace("PLACEHOLDER", typed);
+	load(session, "/virtual/generic.c3", text);
+
+	Context ctx = make_completion_context(session, "/virtual/generic.c3", placeholder_cursor(src, text, typed));
+
+	List{CompletionItem} items;
+	items.tinit();
+	completion::provide_struct_init(&ctx, &items);
+
+	List{String} labels;
+	labels.tinit();
+	foreach (CompletionItem item : items) labels.push(item.label);
+
+	return labels.to_tarray();
+}
+
 <*
  True when a client sorting by sortText would put `a` before `b`.
 

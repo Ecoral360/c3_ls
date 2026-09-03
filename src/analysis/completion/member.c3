@@ -137,9 +137,20 @@ fn ChainSegment[] extract_access_chain(Context* ctx, sz op_idx) @private {
 <*
  Index of the bracket that opens the one at `close_idx`, or -1.
 *>
-fn sz matching_open(Context* ctx, sz close_idx) @local {
+fn sz matching_open(Context* ctx, sz close_idx) @private {
 	TokenKind close = ctx.tokens[close_idx].kind;
-	TokenKind open  = close == TokenKind.RPAREN ? TokenKind.LPAREN : TokenKind.LBRACKET;
+	TokenKind open;
+
+	switch (close) {
+		case RPAREN:
+			open = LPAREN;
+		case RBRACKET:
+			open = LBRACKET;
+		case RBRACE:
+			open = LBRACE;
+		default:
+			return -1;
+	}
 
 	int depth = 0;
 	for (sz i = close_idx; i >= 0; i--) {

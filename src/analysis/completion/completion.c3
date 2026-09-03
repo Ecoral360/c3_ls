@@ -163,6 +163,10 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 		return finish(&items);
 	}
 
+	if (provide_struct_init(&ctx, &items)) {
+		return finish(&items);
+	}
+
 	provide_named_args(&ctx, &items);
 
 	if (ctx.scope == EXECUTION || ctx.scope == CONTAINER) {

@@ -1889,3 +1889,117 @@ fn void named_args_sort_between_locals_and_globals() => @pool() {
 		global_sort
 	);
 }
+// ---------------------------------------------------------------------
+// Struct initializers
+// ---------------------------------------------------------------------
+
+<*
+ `Point p = { .x = 1 }` names its fields, and those names are the whole
+ reason for writing it that way.
+*>
+fn void struct_init_offers_the_fields() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] offered = test_support::init_fields_for(&session, "Point p = { .");
+	test::eq(offered.len, 4);
+	test::eq(offered[0], "x");
+	test::eq(offered[1], "y");
+	test::eq(offered[2], "origin");
+	test::eq(offered[3], "wrapped");
+}
+
+<*
+ Without a '.' the field still belongs, but it has to bring its own -
+ and a positional value is legal there, so the rest of the list stays.
+*>
+fn void struct_init_writes_the_dot_when_it_is_missing() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::init_fields_for(&session, "Point p = { ")[0], ".x");
+
+	// A '.' already on the line settles what can follow; a bare '{' does not.
+	test::@check(test_support::init_consumes(&session, "Point p = { ."), "a designator should lock the list");
+	test::@check(!test_support::init_consumes(&session, "Point p = { "), "a bare brace should not");
+}
+
+<*
+ A field can only be designated once.
+*>
+fn void struct_init_skips_fields_already_set() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] offered = test_support::init_fields_for(&session, "Point p = { .x = 1, .");
+	test::eq(offered.len, 3);
+	test::eq(offered[0], "y");
+
+	test::eq(test_support::init_fields_for(&session, "Point p = { .x = 1, .y = 2, .").len, 2);
+}
+
+<*
+ The type comes from the shape in front of the brace: a declaration, a
+ compound literal, or the field a nested initializer is assigned to.
+*>
+fn void struct_init_resolves_the_type_it_is_building() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::init_fields_for(&session, "Point p = (Point){ .").len, 4);
+
+	String[] nested = test_support::init_fields_for(&session, "Point p = { .origin = { .");
+	test::eq(nested.len, 2);
+	test::eq(nested[0], "depth");
+	test::eq(nested[1], "weight");
+}
+
+<*
+ A '{' is a block far more often than it is an initializer, and guessing
+ wrong would replace the whole list with fields of an unrelated struct.
+*>
+fn void struct_init_stays_out_of_blocks() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::init_fields_for(&session, "int q = local_thing;").len, 0);
+	test::eq(test_support::init_fields_for(&session, "if (local_thing) { local").len, 0);
+	test::eq(test_support::init_fields_for(&session, "while (local_thing) { .").len, 0);
+}
+<*
+ Generic arguments hang off the end of a type name.
+
+ `List{int} lst = {` ends on the '}' that closes them, so reading the
+ single token before the variable answered with a brace and gave up. The
+ name worth resolving is the one in front of that '{'.
+*>
+fn void struct_init_resolves_a_generic_type() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String generic = "module gen <Type>;\n\nstruct Wrap\n{\n\tType item;\n\tint count;\n}\n";
+	session.set_file("/virtual/gen.c3", generic);
+
+	String src = "module user;\n\nimport gen;\n\nfn void go()\n{\n\tPLACEHOLDER\n}\n";
+
+	// The declared type, where the generic arguments end the type tokens.
+	String[] declared = test_support::generic_init_fields(&session, src, "Wrap{int} w = { .");
+	test::eq(declared.len, 2);
+	test::eq(declared[0], "item");
+	test::eq(declared[1], "count");
+
+	// And the same type written as a compound literal.
+	test::eq(test_support::generic_init_fields(&session, src, "Wrap{int} w = (Wrap{int}){ .").len, 2);
+
+	// Through a field, where the type comes from the declaration rather
+	// than from the tokens on this line.
+	String[] nested = test_support::init_fields_for(&session, "Point p = { .wrapped = { .");
+	test::eq(nested.len, 1);
+	test::eq(nested[0], "inner");
+}
