@@ -94,10 +94,37 @@ fn bool name_matches_fuzzy(String symbol_name, String prefix) {
 	return true;
 }
 
-fn bool node_kind_needs_prefix(NodeKind kind) => !(kind == STRUCT_DECL || kind == ENUM_DECL || kind == INTERFACE_DECL);
+fn bool node_needs_prefix(Node* node) {
+	NodeKind kind = node.kind;
+	switch (node.kind) {
+		case ALIAS_DECL:
+			AliasDecl* decl = node.as(AliasDecl);
+			return decl.alias_kind != TYPE_ALIAS;
+
+		case TYPEDEF_DECL:
+		case STRUCT_DECL:
+		case ENUM_DECL:
+		case INTERFACE_DECL:
+			return false;
+		default:
+			return true;
+	}
+}
+
 fn bool type_is_void(
 	TypeExpr* type_expr
 ) => type_expr.type_kind == TYPE_IDENTIFIER && type_expr.unresolved.name.text == "void";
+
+fn String call_cursor(NodeArray params) {
+	if (params.len == 0) return "";
+
+	if (params.len == 1) {
+		VarDecl* param = params[0].as(VarDecl);
+		if (param.var_flags.is_self) return "";
+	}
+
+	return "$1";
+}
 
 <*
  @param qualifier : "module path to write in front of the name, e.g. \"log::\"; empty when the name stands on its own"
@@ -122,7 +149,7 @@ fn void add_symbol_completion(
 
 	// Ahead of the snippet suffixes below, so a function comes out as
 	// `log::info($1)` rather than `log::` in front of a finished snippet.
-	if (qualifier.len > 0 && node_kind_needs_prefix(node.kind)) {
+	if (qualifier.len > 0 && node_needs_prefix(node)) {
 		insert_text = ctx.dstring_pool.cat(qualifier, insert_text);
 	}
 
@@ -133,16 +160,47 @@ fn void add_symbol_completion(
 			item_kind = FUNCTION;
 			type_desc = "fn";
 			FnDecl* decl = node.as(FnDecl);
+
+			String cursor = call_cursor(decl.params);
+
 			bool is_void = type_is_void(decl.ret_type.as(TypeExpr));
-			insert_text = ctx.dstring_pool.cat(insert_text, "($1)", is_void ? ";" : "");
+			insert_text = ctx.dstring_pool.cat(insert_text, "(", cursor, ")", is_void ? ";" : "");
 			format = SNIPPET;
 
 		case MACRO_DECL:
 			item_kind = FUNCTION;
 			type_desc = "macro";
 			MacroDecl* decl = node.as(MacroDecl);
-			bool is_void = type_is_void(decl.ret_type.get().as(TypeExpr)) ?? false;
-			insert_text = ctx.dstring_pool.cat(insert_text, "($1)", is_void ? ";" : "");
+			String cursor = call_cursor(decl.params);
+
+			if (decl.body) {
+				bool is_void = type_is_void(decl.ret_type.get().as(TypeExpr)) ?? false;
+				DString body_params_str;
+				body_params_str.tinit();
+				if (decl.body_params) {
+					BodyParamDecl* body_params = decl.body_params.as(BodyParamDecl);
+					foreach (i, body_param : body_params.params) {
+						if (i != 0) body_params_str.append_string(", ");
+						VarDecl* param = body_param.as(VarDecl);
+						body_params_str.append_string(param.name.text);
+					}
+				}
+				insert_text = ctx.dstring_pool.cat(
+					insert_text,
+					"(",
+					cursor,
+					"; ",
+					body_params_str.str_view(),
+					") {",
+					cursor.len == 0 ? "$1" : "$2",
+					"}",
+					is_void ? ";" : ""
+				);
+			} else {
+				bool is_void = type_is_void(decl.ret_type.get().as(TypeExpr)) ?? false;
+				insert_text = ctx.dstring_pool.cat(insert_text, "(", cursor, ")", is_void ? ";" : "");
+			}
+
 			format = SNIPPET;
 
 		case INTERFACE_DECL:
