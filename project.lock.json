@@ -6,7 +6,7 @@
       "repo": "Ecoral360/c3-analyzer",
       "origin": "github",
       "path": "lib/c3-analyzer.c3l",
-      "zip": false,
+      "zip": true,
       "ref": "",
       "commit": "adb8accb386a1efc028cb5a9e7d19ae963376c20"
     },
@@ -15,7 +15,7 @@
       "repo": "Ecoral360/dessert",
       "origin": "github",
       "path": "lib/dessert.c3l",
-      "zip": false,
+      "zip": true,
       "ref": "",
       "commit": "6e46c0188afed901873cee65fbe901488f3cf37d"
     }
