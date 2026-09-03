@@ -1548,3 +1548,142 @@ fn void insert_text_combines_the_cursor_and_the_semicolon() => @pool() {
 	test::eq(test_support::insert_text_of(&session, "clear"), "clear();");
 	test::eq(test_support::insert_text_of(&session, "set"), "set($1);");
 }
+<*
+ Inside a body, a '(' opens a call or a condition - never a parameter
+ list.
+
+ Reading every '(' as one put `switch (x`, `if (x` and every call
+ argument outside EXECUTION, and provide_locals only runs there. So the
+ variable being passed was missing from exactly the places a variable
+ gets used, while the same prefix on a line of its own worked.
+*>
+fn void find_scope_keeps_execution_inside_parentheses() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String src = "module scopes;\n\nstruct Held\n{\n\tint v;\n}\n\nfn int work(int arg)\n{\n\tint local = arg;\n\tPLACEHOLDER\n}\n";
+
+	String[] typed = { "switch (", "if (", "while (", "int z = work(", "foo(bar(" };
+
+	foreach (String fragment : typed) {
+		String text = src.treplace("PLACEHOLDER", fragment);
+		test_support::load(&session, SCOPE_PATH, text);
+
+		Context ctx = test_support::make_completion_context(
+			&session,
+			SCOPE_PATH,
+			test_support::placeholder_cursor(src, text, fragment)
+		);
+		test::@check(
+			ctx.scope == CompletionContextKind.EXECUTION,
+			"'%s' is not executable ground, got %s",
+			fragment,
+			ctx.scope
+		);
+	}
+
+	// The signature's own parentheses still are a parameter list, and a
+	// struct declared above the function must not be mistaken for the
+	// body having already opened.
+	test_support::load(&session, SCOPE_PATH, src.treplace("PLACEHOLDER", "return local;"));
+
+	Context in_params = test_support::make_completion_context(
+		&session,
+		SCOPE_PATH,
+		test_support::loc_after(src, "work(")
+	);
+	test::eq(in_params.scope, CompletionContextKind.PARAMETER);
+}
+
+<*
+ The three places a function declaration can be, read off its body's own
+ range rather than counted out of the token stream.
+*>
+fn void find_scope_reads_the_declaration_body() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String src = "module scopes;\n\nfn int work(int arg)\n{\n\tint local = arg;\n\treturn local;\n}\n\nint after;\n";
+	test_support::load(&session, SCOPE_PATH, src);
+
+	Context inside = test_support::make_completion_context(
+		&session,
+		SCOPE_PATH,
+		test_support::loc_of(src, "int local")
+	);
+	test::eq(inside.scope, CompletionContextKind.EXECUTION);
+
+	Context signature = test_support::make_completion_context(
+		&session,
+		SCOPE_PATH,
+		test_support::loc_after(src, "work(")
+	);
+	test::eq(signature.scope, CompletionContextKind.PARAMETER);
+
+	// A declaration with no body is nothing but signature.
+	String no_body = "module scopes;\n\nextern fn int work(int arg);\n";
+	test_support::load(&session, SCOPE_PATH, no_body);
+
+	Context declared = test_support::make_completion_context(
+		&session,
+		SCOPE_PATH,
+		test_support::loc_after(no_body, "work(")
+	);
+	test::eq(declared.scope, CompletionContextKind.PARAMETER);
+}
+
+<*
+ A short body is a body.
+
+ `fn void x() => @pool() { ... }` is how most of this codebase is
+ written, and the block only counts as executable ground because the
+ parser gives the wrapper it synthesizes a range covering the block.
+*>
+fn void find_scope_handles_a_short_macro_body() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String src  = "module scopes;\n\nfn void work() => @pool()\n{\n\tint local = 1;\n\tPLACEHOLDER\n}\n";
+	String text = src.treplace("PLACEHOLDER", "switch (loc");
+	test_support::load(&session, SCOPE_PATH, text);
+
+	Context ctx = test_support::make_completion_context(
+		&session,
+		SCOPE_PATH,
+		test_support::placeholder_cursor(src, text, "switch (loc")
+	);
+	test::eq(ctx.scope, CompletionContextKind.EXECUTION);
+
+	List{CompletionItem} items;
+	items.tinit();
+	provide_locals(&ctx, &items);
+	test::@check(test_support::has_label(items, "local"), "the local is missing inside a short macro body");
+}
+
+<*
+ The locals really do come back, not just the scope label.
+*>
+fn void locals_are_offered_inside_a_condition() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String src  = "module scopes;\n\nfn void work()\n{\n\tint counted = 1;\n\tPLACEHOLDER\n}\n";
+	String text = src.treplace("PLACEHOLDER", "switch (coun");
+	test_support::load(&session, SCOPE_PATH, text);
+
+	Context ctx = test_support::make_completion_context(
+		&session,
+		SCOPE_PATH,
+		test_support::placeholder_cursor(src, text, "switch (coun")
+	);
+
+	List{CompletionItem} items;
+	items.tinit();
+	provide_locals(&ctx, &items);
+
+	test::@check(test_support::has_label(items, "counted"), "the local is missing inside the condition");
+}

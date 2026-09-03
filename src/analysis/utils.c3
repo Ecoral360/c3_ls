@@ -128,6 +128,20 @@ fn ImportPrefix import_prefix_at(Context* ctx, Location cursor_loc) {
 }
 
 <*
+ The block a function or macro declaration executes, or null.
+*>
+fn Node* declaration_body(Node* node) @local {
+	switch (node.kind) {
+		case FN_DECL:
+			return node.as(FnDecl).body;
+		case MACRO_DECL:
+			return node.as(MacroDecl).body;
+		default:
+			return null;
+	}
+}
+
+<*
 
 *>
 fn CompletionContextKind find_ctx_completion_kind(Context* ctx, Location cursor_loc) {
@@ -183,30 +197,15 @@ fn CompletionContextKind find_ctx_completion_kind(Context* ctx, Location cursor_
 
 		case FN_DECL:
 		case MACRO_DECL:
-			CompletionContextKind scope = GLOBAL;
-			int parens;
-			int braces;
+			Node* body = declaration_body(node);
 
-			foreach (t : ctx.tokens) {
-				if (!is_before(t.range.start, cursor_loc)) break;
+			if (body && body.range.contains(cursor_loc)) return EXECUTION;
 
-				if (t.kind == LBRACE) {
-					braces++;
-					scope = EXECUTION;
-				} else if (t.kind == RBRACE) {
-					braces--;
-					scope = (braces == 0) ? GLOBAL : EXECUTION;
-				} else if (t.kind == LPAREN) {
-					parens++;
-					scope = PARAMETER;
-				} else if (t.kind == RPAREN) {
-					parens--;
-					scope = NONE;
-				} else if (braces == 0 && parens == 0 && t.kind == IDENT) {
-					scope = NONE;
-				}
-			}
-			return scope;
+			// Everything ahead of the body is the signature, and a
+			// declaration without one is nothing but signature.
+			if (!body || is_before(cursor_loc, body.range.start)) return PARAMETER;
+
+			return GLOBAL;
 
 		default:
 	}
