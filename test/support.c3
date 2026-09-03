@@ -557,6 +557,70 @@ fn String insert_text_of(LspSession* session, String name) {
 	return items.len() > 0 ? items[0].insert_text : "";
 }
 
+const String NAMED_ARG_SRC = `module named;
+
+struct Box
+{
+	int v;
+}
+
+fn void Box.setup(&self, int width, int height = 2)
+{
+	self.v = width;
+}
+
+fn int build(int alpha, int beta = 1, int gamma = 2)
+{
+	return alpha;
+}
+
+fn void go()
+{
+	Box bx;
+	int local_thing = 1;
+	PLACEHOLDER
+}
+`;
+
+const String NAMED_ARG_PATH = "/virtual/named.c3";
+
+<*
+ The named arguments offered with `typed` written on the PLACEHOLDER
+ line, in the order provide_named_args pushed them.
+*>
+fn String[] named_args_for(LspSession* session, String typed) {
+	String text = NAMED_ARG_SRC.treplace("PLACEHOLDER", typed);
+	load(session, NAMED_ARG_PATH, text);
+
+	Context ctx = make_completion_context(session, NAMED_ARG_PATH, placeholder_cursor(NAMED_ARG_SRC, text, typed));
+
+	List{CompletionItem} items;
+	items.tinit();
+	completion::provide_named_args(&ctx, &items);
+
+	List{String} labels;
+	labels.tinit();
+	foreach (CompletionItem item : items) labels.push(item.label);
+
+	return labels.to_tarray();
+}
+
+<*
+ True when a client sorting by sortText would put `a` before `b`.
+
+ Plain byte order, which is what the protocol asks a client to do with
+ the field.
+*>
+fn bool sorts_above(String a, String b) {
+	sz shared = min(a.len, b.len);
+
+	for (sz i = 0; i < shared; i++) {
+		if (a[i] != b[i]) return a[i] < b[i];
+	}
+
+	return a.len < b.len;
+}
+
 <*
  Resolve the reference at `loc` the way goto definition and hover do.
 *>

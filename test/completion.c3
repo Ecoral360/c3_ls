@@ -1687,3 +1687,205 @@ fn void locals_are_offered_inside_a_condition() => @pool() {
 
 	test::@check(test_support::has_label(items, "counted"), "the local is missing inside the condition");
 }
+// ---------------------------------------------------------------------
+// Named arguments
+// ---------------------------------------------------------------------
+
+
+<*
+ C3 takes `lst.init(initial_capacity: 32)`, and a parameter name is the
+ one thing the caller cannot read off the value being passed.
+*>
+fn void named_args_offer_the_callee_parameters() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] offered = test_support::named_args_for(&session, "bx.setup(");
+	test::eq(offered.len, 2);
+	test::eq(offered[0], "width:");
+	test::eq(offered[1], "height:");
+
+	// A plain call resolves the same way.
+	test::eq(test_support::named_args_for(&session, "int q = build(")[0], "alpha:");
+}
+
+<*
+ The receiver is not written at the call site.
+*>
+fn void named_args_skip_the_receiver() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::@check(
+		!test_support::has(test_support::named_args_for(&session, "bx.setup("), "self:"),
+		"the receiver was offered as an argument"
+	);
+}
+
+<*
+ A name already written is not worth offering twice.
+*>
+fn void named_args_skip_what_is_already_written() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] offered = test_support::named_args_for(&session, "bx.setup(width: 1, ");
+	test::eq(offered.len, 1);
+	test::eq(offered[0], "height:");
+}
+
+<*
+ The innermost unclosed '(' is the call being written, whether it is
+ nested inside another argument list or simply the second call on the
+ line.
+*>
+fn void named_args_follow_the_innermost_call() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	// build( inside setup('s argument list.
+	String[] nested = test_support::named_args_for(&session, "bx.setup(build(");
+	test::eq(nested.len, 3);
+	test::eq(nested[0], "alpha:");
+
+	// And a finished call earlier on the same line is not the one.
+	String[] second = test_support::named_args_for(&session, "int q = build(alpha: 1) + build(");
+	test::eq(second.len, 3);
+	test::eq(second[0], "alpha:");
+}
+
+<*
+ Outside an argument list there is nothing to name.
+*>
+fn void named_args_stay_out_of_everything_else() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::named_args_for(&session, "local_th").len, 0);
+	test::eq(test_support::named_args_for(&session, "int q = 1;").len, 0);
+
+	// A '(' that belongs to a condition names no callee.
+	test::eq(test_support::named_args_for(&session, "if (local_th").len, 0);
+}
+<*
+ A positional argument fills a parameter just as a named one does.
+
+ They fill them in order, so the ones already written can be matched off
+ the front of the list and only what is still open gets offered.
+*>
+fn void named_args_count_the_positional_arguments() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] none = test_support::named_args_for(&session, "int q = build(");
+	test::eq(none.len, 3);
+	test::eq(none[0], "alpha:");
+
+	String[] one = test_support::named_args_for(&session, "int q = build(1, ");
+	test::eq(one.len, 2);
+	test::eq(one[0], "beta:");
+
+	String[] two = test_support::named_args_for(&session, "int q = build(1, 2, ");
+	test::eq(two.len, 1);
+	test::eq(two[0], "gamma:");
+
+	// The receiver takes no position, so one argument fills `width`.
+	String[] method = test_support::named_args_for(&session, "bx.setup(1, ");
+	test::eq(method.len, 1);
+	test::eq(method[0], "height:");
+
+	test::eq(test_support::named_args_for(&session, "bx.setup(1, 2, ").len, 0);
+}
+
+<*
+ A comma inside a nested call or an index belongs to that expression, not
+ to the argument list being written.
+*>
+fn void named_args_count_one_argument_per_comma_at_the_top() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] called = test_support::named_args_for(&session, "int q = build(build(1, 2), ");
+	test::eq(called.len, 2);
+	test::eq(called[0], "beta:");
+
+	String[] indexed = test_support::named_args_for(&session, "int q = build(bx.v[1, 2], ");
+	test::eq(indexed.len, 2);
+	test::eq(indexed[0], "beta:");
+}
+
+<*
+ C3 takes a named argument only after the positional ones, so counting
+ stops at the first name instead of running past it.
+*>
+fn void named_args_stop_counting_at_the_first_name() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	// alpha is filled positionally and gamma by name, leaving beta.
+	String[] offered = test_support::named_args_for(&session, "int q = build(1, gamma: 3, ");
+	test::eq(offered.len, 1);
+	test::eq(offered[0], "beta:");
+}
+
+<*
+ Past the ':' the cursor is on a value, and a parameter name is not what
+ goes there.
+*>
+fn void named_args_stay_out_of_a_named_value() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::named_args_for(&session, "bx.setup(width: ").len, 0);
+}
+<*
+ A value in scope is still the likelier thing to pass, so the parameter
+ names sort under the locals - but above every function in the
+ workspace, which is what a call's argument list is least likely to want.
+*>
+fn void named_args_sort_between_locals_and_globals() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String text = test_support::NAMED_ARG_SRC.treplace("PLACEHOLDER", "bx.setup(");
+	test_support::load(&session, test_support::NAMED_ARG_PATH, text);
+
+	Context ctx = test_support::make_completion_context(
+		&session,
+		test_support::NAMED_ARG_PATH,
+		test_support::placeholder_cursor(test_support::NAMED_ARG_SRC, text, "bx.setup(")
+	);
+
+	List{CompletionItem} items;
+	items.tinit();
+	provide_locals(&ctx, &items);
+	provide_named_args(&ctx, &items);
+	provide_global(&ctx, &items);
+
+	String local_sort  = test_support::item_named(items, "local_thing").sort_text;
+	String named_sort  = test_support::item_named(items, "width:").sort_text;
+	String global_sort = test_support::item_named(items, "build").sort_text;
+
+	test::@check(
+		test_support::sorts_above(local_sort, named_sort),
+		"'%s' should sort above '%s'",
+		local_sort,
+		named_sort
+	);
+	test::@check(
+		test_support::sorts_above(named_sort, global_sort),
+		"'%s' should sort above '%s'",
+		named_sort,
+		global_sort
+	);
+}

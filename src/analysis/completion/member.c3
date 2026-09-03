@@ -99,7 +99,7 @@ fn bool is_name_token(TokenKind kind) @local {
  'bar(a.b' stops at the '(' and yields [a, b], which is what the cursor
  inside those parentheses is actually working on.
 *>
-fn ChainSegment[] extract_access_chain(Context* ctx, sz op_idx) @local {
+fn ChainSegment[] extract_access_chain(Context* ctx, sz op_idx) @private {
 	List{ChainSegment} segments;
 	segments.tinit();
 
