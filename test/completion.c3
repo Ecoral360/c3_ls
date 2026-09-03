@@ -1384,12 +1384,12 @@ fn void global_items_qualify_callables_from_other_modules() => @pool() {
 
 	CompletionItem nested = test_support::item_named(items, "from_inner");
 	test::eq(nested.label, "from_inner");
-	test::eq(nested.insert_text, "inner::from_inner($1);");
+	test::eq(nested.insert_text, "inner::from_inner();");
 	test::eq(nested.filter_text, "from_inner");
 
 	CompletionItem own = test_support::item_named(items, "from_outer");
 	test::eq(own.label, "from_outer");
-	test::eq(own.insert_text, "from_outer($1);");
+	test::eq(own.insert_text, "from_outer();");
 }
 
 <*
@@ -1451,7 +1451,7 @@ fn void static_access_items_stay_unqualified() => @pool() {
 
 	CompletionItem offered = test_support::item_named(items, "from_outer");
 	test::eq(offered.label, "from_outer");
-	test::eq(offered.insert_text, "from_outer($1);");
+	test::eq(offered.insert_text, "from_outer();");
 }
 <*
  A method is not callable by its bare name.
@@ -1503,4 +1503,48 @@ fn void member_access_still_offers_methods() => @pool() {
 	test::@check(test_support::has(offered, "reset"), "the method is missing after a '.': %s", offered);
 	test::@check(test_support::has(offered, "get_inner"), "the method is missing after a '.': %s", offered);
 	test::@check(test_support::has(offered, "id"), "the field is missing after a '.': %s", offered);
+}
+// ---------------------------------------------------------------------
+// Where the snippet cursor goes
+// ---------------------------------------------------------------------
+
+<*
+ A `$1` placeholder is only worth putting where the caller has something
+ to type.
+
+ A call that takes nothing, and a method whose only parameter is its own
+ receiver, both leave the cursor after the parentheses instead.
+*>
+fn void call_cursor_marks_only_a_real_argument() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, test_support::CALL_SHAPE_PATH, test_support::CALL_SHAPE_SRC);
+
+	test::eq(test_support::call_cursor_of(&session, "nothing"), "");
+	test::eq(test_support::call_cursor_of(&session, "one"), "$1");
+	test::eq(test_support::call_cursor_of(&session, "two"), "$1");
+
+	// The receiver is not something the caller writes.
+	test::eq(test_support::call_cursor_of(&session, "clear"), "");
+	test::eq(test_support::call_cursor_of(&session, "set"), "$1");
+}
+
+<*
+ The same rule as it reaches the wire, alongside the trailing ';' a void
+ call gets because nothing can be done with its result.
+*>
+fn void insert_text_combines_the_cursor_and_the_semicolon() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, test_support::CALL_SHAPE_PATH, test_support::CALL_SHAPE_SRC);
+
+	test::eq(test_support::insert_text_of(&session, "nothing"), "nothing();");
+	test::eq(test_support::insert_text_of(&session, "one"), "one($1)");
+	test::eq(test_support::insert_text_of(&session, "two"), "two($1)");
+	test::eq(test_support::insert_text_of(&session, "clear"), "clear();");
+	test::eq(test_support::insert_text_of(&session, "set"), "set($1);");
 }

@@ -500,6 +500,63 @@ fn void setup_members(LspSession* session, String rival_src, String member_src) 
 	session.analyze(MEMBER_PATH);
 }
 
+const String CALL_SHAPE_SRC = `module shapes;
+
+struct Box
+{
+	int v;
+}
+
+fn void nothing()
+{
+	return;
+}
+
+fn int one(int a)
+{
+	return a;
+}
+
+fn int two(int a, int b)
+{
+	return a + b;
+}
+
+fn void Box.clear(&self)
+{
+	self.v = 0;
+}
+
+fn void Box.set(&self, int v)
+{
+	self.v = v;
+}
+`;
+
+const String CALL_SHAPE_PATH = "/virtual/shapes.c3";
+
+<*
+ The snippet cursor completion would put inside `name`'s parentheses.
+*>
+fn String call_cursor_of(LspSession* session, String name) {
+	FnDecl* decl = find_top_level(session, CALL_SHAPE_PATH, name).as(FnDecl);
+
+	return completion::call_cursor(decl.params, decl.associated_type != null);
+}
+
+<*
+ The insert text completion offers for `name`, from inside its own module.
+*>
+fn String insert_text_of(LspSession* session, String name) {
+	Context ctx = make_completion_context(session, CALL_SHAPE_PATH, loc_of(CALL_SHAPE_SRC, "int v;"));
+
+	List{CompletionItem} items;
+	items.tinit();
+	completion::add_symbol_completion(&ctx, &items, name, find_top_level(session, CALL_SHAPE_PATH, name), "shapes");
+
+	return items.len() > 0 ? items[0].insert_text : "";
+}
+
 <*
  Resolve the reference at `loc` the way goto definition and hover do.
 *>
