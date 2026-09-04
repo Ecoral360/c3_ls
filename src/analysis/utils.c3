@@ -142,12 +142,15 @@ fn Node* declaration_body(Node* node) @local {
 }
 
 <*
-
 *>
 fn CompletionContextKind find_ctx_completion_kind(Context* ctx, Location cursor_loc) {
 	// Ahead of anything AST based, because the AST is the unreliable part
 	// while an import is being typed.
 	if (import_prefix_at(ctx, cursor_loc).found) return IMPORT;
+
+	if (ctx.leaf_node.kind == CONTRACT_DECL) {
+		return CONTRACT;
+	}
 
 	if (!ctx.top_level_node) return GLOBAL;
 

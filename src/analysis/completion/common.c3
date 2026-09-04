@@ -170,18 +170,16 @@ fn void add_symbol_completion(
 			item_kind = FUNCTION;
 			type_desc = "macro";
 			MacroDecl* decl = node.as(MacroDecl);
-			String cursor = call_cursor(decl.params, (Node*) decl.associated_type != null);
+			String cursor = call_cursor(decl.params, (Node*)decl.associated_type != null);
 
-			if (decl.body) {
+			if (decl.body_params) {
 				DString body_params_str;
 				body_params_str.tinit();
-				if (decl.body_params) {
-					BodyParamDecl* body_params = decl.body_params.as(BodyParamDecl);
-					foreach (i, body_param : body_params.params) {
-						if (i != 0) body_params_str.append_string(", ");
-						VarDecl* param = body_param.as(VarDecl);
-						body_params_str.append_string(param.name.text);
-					}
+				BodyParamDecl* body_params = decl.body_params.as(BodyParamDecl);
+				foreach (i, body_param : body_params.params) {
+					if (i != 0) body_params_str.append_string(", ");
+					VarDecl* param = body_param.as(VarDecl);
+					body_params_str.append_string(param.name.text);
 				}
 				insert_text = ctx.dstring_pool.cat(
 					insert_text,

@@ -13,26 +13,26 @@ struct CompletionOptions @DStruct({ .rename_all = CAMEL_CASE }) {
 }
 
 $expand(dessert::@derive(SignatureHelpOptions));
-struct SignatureHelpOptions {
-	String[] triggerCharacters;
-	String[] retriggerCharacters;
+struct SignatureHelpOptions @DStruct({ .rename_all = CAMEL_CASE }){
+	String[] trigger_characters;
+	String[] retrigger_characters;
 }
 
 $expand(dessert::@derive(SemanticTokensLegend));
-struct SemanticTokensLegend {
-	String[] tokenTypes;
-	String[] tokenModifiers;
+struct SemanticTokensLegend @DStruct({ .rename_all = CAMEL_CASE }){
+	String[] token_types;
+	String[] token_modifiers;
 }
 
 $expand(dessert::@derive(SemanticTokensOptions));
-struct SemanticTokensOptions {
+struct SemanticTokensOptions @DStruct({ .rename_all = CAMEL_CASE }){
 	SemanticTokensLegend legend;
 	bool full;
 }
 
 $expand(dessert::@derive(RenameOptions));
-struct RenameOptions {
-	bool prepareProvider;
+struct RenameOptions @DStruct({ .rename_all = CAMEL_CASE }){
+	bool prepare_provider;
 }
 
 <*

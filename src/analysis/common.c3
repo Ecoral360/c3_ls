@@ -9,7 +9,8 @@ enum CompletionContextKind {
 	ENUM,
 	EXECUTION,       // Inside a function body or macro body
 	TYPE_ASSIGNMENT, // Explicit right-hand side matching (e.g., Var = )
-	ATTRIBUTE
+	ATTRIBUTE,
+	CONTRACT,
 }
 
 enum LspAccessKind {

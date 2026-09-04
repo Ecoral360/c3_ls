@@ -109,6 +109,10 @@ fn void dispatch(LspMessage* message) => @pool() {
 		case DID_CLOSE:
 			break;
 			// project.close_file(message.params.did_close.document.uri);
+
+		case SIGNATURE_HELP:
+			msg_handler::signature_help::response(tmem, &project, message);
+
 		case COMPLETION:
 			completion::response(tmem, &project, message);
 		case COMPLETION_RESOLVE:

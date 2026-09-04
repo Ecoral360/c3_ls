@@ -22,7 +22,7 @@ enum MessageKind : char (String name) @DEnum({ .as = FIELD, .field = "name", .fa
 	DEFINITION         { "textDocument/definition" },
 	DECLERATION        { "textDocument/declaration" },
 	REFERENCES         { "textDocument/references" },
-	HELP               { "textDocument/signatureHelp" },
+	SIGNATURE_HELP     { "textDocument/signatureHelp" },
 	RENAME             { "textDocument/rename" },
 	PREPARE_RENAME     { "textDocument/prepareRename" },
 	WILL_SAVE          { "textDocument/willSave" },
@@ -91,12 +91,7 @@ union MessageParams {
 	DidCloseParams did_close;
 	HoverParams hover;
 	CompletionParams completion;
-	<*
-	 The parameters of completionItem/resolve are a CompletionItem itself,
-	 not a wrapper around one. A struct with an `inline CompletionItem` did
-	 serialize correctly but deserialized to all-empty fields, so every
-	 resolve reply came back blank and clients inserted nothing.
-	*>
+
 	CompletionItem completion_resolve;
 	GoToDefinitionParams definition;
 
@@ -105,6 +100,7 @@ union MessageParams {
 
 	CancelParams cancel;
 	SetTraceParams set_trace;
+  SignatureHelp signature_help;
 }
 
 $expand(dessert::@derive(InitializeParams));
@@ -195,4 +191,13 @@ $expand(dessert::@derive(LogMessageParams));
 struct LogMessageParams {
 	int type;
 	String message;
+}
+
+
+$expand(dessert::@derive(SignatureHelp));
+struct SignatureHelp {
+	struct document @DField({ .rename = "textDocument" }) {
+		DocumentUri uri;
+	}
+	LspPosition position;
 }

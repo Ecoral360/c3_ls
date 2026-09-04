@@ -169,10 +169,9 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 
 	provide_named_args(&ctx, &items);
 
-	if (ctx.scope == EXECUTION || ctx.scope == CONTAINER) {
-		provide_locals(&ctx, &items);
-	}
+	provide_locals(&ctx, &items);
 
+	provide_contract(&ctx, &items);
 	provide_global(&ctx, &items);
 	provide_module_paths(&ctx, &items);
 	provide_keywords(&ctx, &items);

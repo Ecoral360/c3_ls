@@ -39,6 +39,10 @@ fn void response(Allocator allocator, LspMessage* message) {
 				},
 				.hover_provider = true,
 				.definition_provider = true,
+				.signature_help_provider = {
+					.trigger_characters = { "(" },
+					.retrigger_characters = { "," },
+				}
 			},
 			.serverInfo = {
 				.name = "c3_ls",
