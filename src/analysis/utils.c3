@@ -148,7 +148,7 @@ fn CompletionContextKind find_ctx_completion_kind(Context* ctx, Location cursor_
 	// while an import is being typed.
 	if (import_prefix_at(ctx, cursor_loc).found) return IMPORT;
 
-	if (ctx.leaf_node.kind == CONTRACT_DECL) {
+	if (ctx.leaf_node && ctx.leaf_node.kind == CONTRACT_DECL) {
 		return CONTRACT;
 	}
 
