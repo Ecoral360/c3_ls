@@ -34,6 +34,16 @@ cd c3_ls
 c3c build
 ```
 
+## Git hooks
+
+Shared hooks live in `.githooks/`. Enable them once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`pre-push` runs `c3c test` and aborts the push if any test fails. Bypass with `git push --no-verify`.
+
 ### Command-line args
 
 | Argument | Type | Default | Description |

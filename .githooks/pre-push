@@ -1,0 +1,17 @@
+#!/bin/sh
+# Run the C3 test suite before pushing; abort the push if anything fails.
+# Skip with: git push --no-verify
+
+if ! command -v c3c >/dev/null 2>&1; then
+	echo "pre-push: c3c not found in PATH, skipping tests" >&2
+	exit 0
+fi
+
+echo "pre-push: running 'c3c test'..."
+if ! c3c test; then
+	echo "pre-push: tests failed, push aborted (use --no-verify to override)" >&2
+	exit 1
+fi
+
+echo "pre-push: tests passed"
+exit 0
