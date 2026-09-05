@@ -202,7 +202,6 @@ fn void add_symbol_completion(
 		case INTERFACE_DECL:
 			item_kind = INTERFACE;
 			type_desc = "interface";
-			insert_text = ctx.dstring_pool.cat(insert_text, "($1)");
 			format = SNIPPET;
 
 		case STRUCT_DECL:
