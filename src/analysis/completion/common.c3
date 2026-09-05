@@ -35,6 +35,7 @@ struct Context {
 	CompletionContextKind scope;
 	Node* leaf_node;
 	Node* top_level_node;
+	NodeArray node_lineage;
 	<*
 	 Contains all tokens of the current file
 	*>

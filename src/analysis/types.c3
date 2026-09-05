@@ -104,7 +104,7 @@ fn Node* return_type_decl(TypeContext ctx, Node* callable) {
  or a file scope global once sema has put it in the root scope.
 
  The symbol index only carries top level declarations, so the scope tree
- is the only place a local or a parameter exists. 
+ is the only place a local or a parameter exists.
 *>
 fn Node* variable_decl(TypeContext ctx, String name) {
 	if (!ctx.file || name.len == 0) return null;
@@ -119,17 +119,26 @@ fn Node* variable_decl(TypeContext ctx, String name) {
 }
 
 <*
+ Bare name of the type `self` stands for at the cursor, or "" when the
+ cursor is not inside a method.
+
+ A receiver is written `self` or `&self` and carries no written type, so
+ the associated type in the enclosing signature is the only thing that
+ says what it is.
+*>
+fn String self_type_name(TypeContext ctx) {
+	if (!ctx.file || !ctx.file.sf) return "";
+
+	return core::method_target(core::top_level_at(ctx.file.sf, ctx.location));
+}
+
+<*
  The type `self` stands for at the cursor.
 
  It refers to is the associated type in the enclosing signature.
 *>
 fn Node* self_type(TypeContext ctx) {
-	if (!ctx.file || !ctx.file.sf) return null;
-
-	Node* enclosing = core::top_level_at(ctx.file.sf, ctx.location);
-	if (!enclosing) return null;
-
-	String type_name = core::method_target(enclosing);
+	String type_name = self_type_name(ctx);
 	if (type_name.len == 0) return null;
 
 	return find_decl(ctx, type_name, true);
@@ -139,12 +148,19 @@ fn Node* self_type(TypeContext ctx) {
  Declaration of the type a variable in scope was declared with.
 *>
 fn Node* variable_type(TypeContext ctx, String name) {
-	Node* decl = variable_decl(ctx, name);
-	if (decl && decl.as(VarDecl).type) return type_decl_of(ctx, decl.as(VarDecl).type);
+	if (Node* decl = variable_decl(ctx, name)) {
+		VarDecl* var_decl = decl.as(VarDecl);
+		if (var_decl.type) return type_decl_of(ctx, var_decl.type);
 
-	// A receiver is written `&self`, so it has no type to resolve and sema
-	// does not always put it in the scope tree either. Both roads end at
-	// the associated type of the method being written.
+		// A receiver is in scope like any other parameter but has no
+		// written type, so it resolves through the signature instead.
+		if (var_decl.var_flags.is_self) return self_type(ctx);
+
+		return null;
+	}
+
+	// Sema drops the receiver from the scope tree when the body does not
+	// parse, and the road out of that is the same one.
 	if (name == "self") return self_type(ctx);
 
 	return null;

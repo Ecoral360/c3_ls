@@ -41,6 +41,13 @@ fn void provide_scope_locals(Scope* leaf, Context* ctx, List{CompletionItem}* it
 		String type_name;
 		if (decl.type) {
 			type_name = cursor::raw_type_identifier(decl.type) ?? "";
+		} else if (decl.var_flags.is_self) {
+			// `self` and `&self` carry no written type, so the only place
+			// their type is spelled out is the enclosing signature.
+			String target = analysis::self_type_name(type_context(ctx));
+			if (target.len > 0) {
+				type_name = decl.var_flags.is_self_by_ref ? ctx.dstring_pool.cat(target, "*") : target;
+			}
 		}
 
 		String details;

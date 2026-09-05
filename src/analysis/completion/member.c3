@@ -198,16 +198,18 @@ fn Node* resolve_chain_root(Context* ctx, ChainSegment seg) @local {
 	);
 
 	// A variable shadows a type of the same name, so the scope chain wins.
-	if (ctx.file) {
-		Scope* leaf        = core::find_deepest_scope(ctx.file.root_rt_scope, ctx.location);
-		VariableInfo* info = leaf ? scope::get_variable(leaf, seg.name) : null;
-
-		if (info && info.node && info.node.kind == VAR_DECL) {
-			return analysis::type_decl_of(type_context(ctx), info.node.as(VarDecl).type);
-		}
+	// Going through variable_type rather than the written type directly is
+	// what makes `self.` work: the receiver is a parameter with no type of
+	// its own, and only the enclosing signature says what it stands for.
+	if (analysis::variable_decl(type_context(ctx), seg.name)) {
+		return analysis::variable_type(type_context(ctx), seg.name);
 	}
 
-	// Otherwise the name is the type itself, the 'Point' of 'Point::'.
+	// A body that does not parse costs the receiver its scope entry, and
+	// half written code is the normal state of a file being completed in.
+	if (seg.name == "self") return analysis::self_type(type_context(ctx));
+
+	// Otherwise the name is the type itself
 	return analysis::find_decl(type_context(ctx), seg.name, true);
 }
 

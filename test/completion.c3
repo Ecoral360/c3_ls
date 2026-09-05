@@ -2002,4 +2002,173 @@ fn void struct_init_resolves_a_generic_type() => @pool() {
 	String[] nested = test_support::init_fields_for(&session, "Point p = { .wrapped = { .");
 	test::eq(nested.len, 1);
 	test::eq(nested[0], "inner");
+} // ---------------------------------------------------------------------
+// The receiver
+// ---------------------------------------------------------------------
+
+const String RECEIVER_SRC = `module receivers;
+
+struct Inner
+{
+	int depth;
+}
+
+struct Box
+{
+	int width;
+	Inner inner;
+}
+
+fn void Box.grow(&self, int amount)
+{
+	PLACEHOLDER
+}
+
+fn int Box.area(self)
+{
+	return 0;
+}
+
+macro Box.twice(&self)
+{
+	return 0;
+}
+`;
+
+const String VALUE_RECEIVER_SRC = `module receivers;
+
+struct Box
+{
+	int width;
+}
+
+fn int Box.area(self)
+{
+	PLACEHOLDER
+	return 0;
+}
+`;
+
+const String MACRO_RECEIVER_SRC = `module receivers;
+
+struct Box
+{
+	int width;
+}
+
+macro Box.twice(&self)
+{
+	PLACEHOLDER
+	return 0;
+}
+`;
+
+const String NO_RECEIVER_SRC = `module receivers;
+
+struct Box
+{
+	int width;
+}
+
+fn void loose()
+{
+	PLACEHOLDER
+}
+`;
+
+<*
+ A receiver is a parameter with no written type, so resolving it through
+ the type it was declared with answers null and `self.` offered nothing.
+ What it stands for is the associated type of the enclosing signature.
+*>
+fn void member_access_resolves_a_receiver() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] by_ref = test_support::member_labels_of(&session, RECEIVER_SRC, "self.");
+	test::@check(test_support::has(by_ref, "width"), "a field of the receiver is missing: %s", by_ref);
+	test::@check(test_support::has(by_ref, "inner"), "a field of the receiver is missing: %s", by_ref);
+	test::@check(test_support::has(by_ref, "grow"), "a method of the receiver is missing: %s", by_ref);
+	test::@check(test_support::has(by_ref, "twice"), "a macro method is missing: %s", by_ref);
+
+	// `self` and `&self` name the same type, and a macro carries an
+	// associated type the same way a function does.
+	String[] by_value = test_support::member_labels_of(&session, VALUE_RECEIVER_SRC, "self.");
+	test::@check(test_support::has(by_value, "width"), "a by value receiver resolved to nothing: %s", by_value);
+
+	String[] in_macro = test_support::member_labels_of(&session, MACRO_RECEIVER_SRC, "self.");
+	test::@check(test_support::has(in_macro, "width"), "a macro receiver resolved to nothing: %s", in_macro);
+}
+
+<*
+ Once the receiver resolves it is an ordinary base, so the rest of the
+ chain and the prefix filter apply to it unchanged.
+*>
+fn void member_access_follows_the_receiver_further() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] nested = test_support::member_labels_of(&session, RECEIVER_SRC, "self.inner.");
+	test::eq(nested.len, 1);
+	test::eq(nested[0], "depth");
+
+	String[] narrowed = test_support::member_labels_of(&session, RECEIVER_SRC, "self.wi");
+	test::eq(narrowed.len, 1);
+	test::eq(narrowed[0], "width");
+}
+
+<*
+ An unclosed body costs the receiver its entry in the scope tree, which
+ is exactly the state a file is in while being typed into. The signature
+ still parses, and that is where the answer comes from.
+*>
+fn void member_access_resolves_a_receiver_in_a_broken_body() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String src = `module receivers;
+
+struct Box
+{
+	int width;
+}
+
+fn void Box.grow(&self)
+{
+	if (self.width > 0) {
+	PLACEHOLDER
+`;
+
+	String[] offered = test_support::member_labels_of(&session, src, "self.");
+	test::@check(test_support::has(offered, "width"), "the receiver was lost with the body: %s", offered);
+	test::@check(test_support::has(offered, "grow"), "the receiver was lost with the body: %s", offered);
+}
+
+<*
+ Outside a method there is no associated type, and a name that resolves
+ to nothing must not fall back to offering something else.
+*>
+fn void member_access_declines_a_receiver_outside_a_method() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::member_labels_of(&session, NO_RECEIVER_SRC, "self.").len, 0);
+}
+
+<*
+ The receiver is offered as a local like any other parameter, and its
+ detail says the type it stands for - with the '*' that '&self' adds.
+*>
+fn void locals_name_the_type_a_receiver_stands_for() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::local_detail_of(&session, RECEIVER_SRC, "s", "self"), "(param) Box*");
+	test::eq(test_support::local_detail_of(&session, VALUE_RECEIVER_SRC, "s", "self"), "(param) Box");
+	test::eq(test_support::local_detail_of(&session, MACRO_RECEIVER_SRC, "s", "self"), "(param) Box*");
 }

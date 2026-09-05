@@ -140,10 +140,10 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 	ctx.access = NONE;
 	ctx.base_identifier = "";
 
-	NodeEntry node_entry = cursor::node_entry(&ctx.sf.ast, ctx.location);
+	NodeArray node_lineage = cursor::lineage(&ctx.sf.ast, ctx.location);
 
-	ctx.top_level_node = ctx.sf.ast.node_at(node_entry.path, depth: 0) ?? null;
-	ctx.leaf_node = node_entry.node;
+	ctx.top_level_node = node_lineage[0];
+	ctx.leaf_node = node_lineage[node_lineage.len - 1];
 
 	context_populate_tokens(&ctx);
 	detect_access_context(&ctx);
