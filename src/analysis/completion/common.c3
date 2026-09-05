@@ -202,7 +202,6 @@ fn void add_symbol_completion(
 		case INTERFACE_DECL:
 			item_kind = INTERFACE;
 			type_desc = "interface";
-			format = SNIPPET;
 
 		case STRUCT_DECL:
 			item_kind = STRUCT;
