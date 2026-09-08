@@ -205,11 +205,25 @@ fn Node* find_method(TypeContext ctx, Node* type_decl, String name) {
 fn Node* find_field(Node* type_decl, String name) {
 	if (!type_decl || type_decl.kind != STRUCT_DECL || name.len == 0) return null;
 
-	foreach (Node* field_node : type_decl.as(StructDecl).fields) {
+	StructDecl* str_decl = type_decl.as(StructDecl);
+
+	foreach (Node* field_node : str_decl.fields) {
 		if (!field_node || field_node.kind != VAR_DECL) continue;
 
 		VarDecl* field = field_node.as(VarDecl);
 		if (field.name && field.name.text == name) return field_node;
+	}
+
+	Node* next = str_decl.next;
+	while (next) {
+		StructDecl* sub = next.as(StructDecl);
+		if (sub.name) {
+			if (sub.name.text == name) return next;
+		} else {
+			Node* result = find_field(next, name);
+			if (result) return result;
+		}
+		next = sub.next;
 	}
 
 	return null;

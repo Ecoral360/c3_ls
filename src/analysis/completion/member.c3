@@ -229,13 +229,26 @@ fn Node* resolve_member_type(Context* ctx, Node* type_decl, ChainSegment seg) @l
 
 	if (type_decl.kind != STRUCT_DECL) return null;
 
-	foreach (Node* field_node : type_decl.as(StructDecl).fields) {
+	StructDecl* str_decl = type_decl.as(StructDecl);
+	foreach (Node* field_node : str_decl.fields) {
 		if (!field_node || field_node.kind != VAR_DECL) continue;
 
 		VarDecl* field = field_node.as(VarDecl);
 		if (!field.name || field.name.text != seg.name) continue;
 
 		return analysis::type_decl_of(type_context(ctx), field.type);
+	}
+
+	Node* next = str_decl.next;
+	while (next) {
+		StructDecl* sub = next.as(StructDecl);
+		if (sub.name) {
+			if (sub.name.text == seg.name) return next;
+		} else {
+			Node* result = resolve_member_type(ctx, next, seg);
+			if (result) return result;
+		}
+		next = sub.next;
 	}
 
 	return null;
@@ -354,6 +367,7 @@ fn void collect_module_symbols(Context* ctx, List{CompletionItem}* items, Module
 fn void collect_struct_fields(Context* ctx, List{CompletionItem}* items, StructDecl* str_decl) {
 	foreach (field_node : str_decl.fields) {
 		if (field_node.kind != VAR_DECL) continue;
+
 		VarDecl* field = field_node.as(VarDecl);
 
 		String name = field.name.text;
@@ -362,5 +376,22 @@ fn void collect_struct_fields(Context* ctx, List{CompletionItem}* items, StructD
 		items.push(
 			{ .label = name, .kind = FIELD, .detail = field.type ? (cursor::spelling(field.type, tmem) ?? "") : "" }
 		);
+	}
+
+	Node* next = str_decl.next;
+	while (next) {
+		StructDecl* sub = next.as(StructDecl);
+		if (sub.name) {
+			items.push(
+				{
+					.label = sub.name.text,
+					.kind = FIELD,
+					.detail = sub.name.text,
+				}
+			);
+		} else {
+			collect_struct_fields(ctx, items, sub);
+		}
+		next = sub.next;
 	}
 }
