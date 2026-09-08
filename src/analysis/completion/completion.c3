@@ -142,8 +142,9 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 
 	NodeArray node_lineage = cursor::lineage(&ctx.sf.ast, ctx.location);
 
-	ctx.top_level_node = node_lineage[0];
-	ctx.leaf_node = node_lineage[node_lineage.len - 1];
+	ctx.node_lineage = node_lineage;
+	ctx.top_level_node = node_lineage.len > 0 ? node_lineage[0] : null;
+	ctx.leaf_node = node_lineage.len > 0 ? node_lineage[^1] : null;
 
 	context_populate_tokens(&ctx);
 	detect_access_context(&ctx);

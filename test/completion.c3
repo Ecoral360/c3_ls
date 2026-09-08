@@ -9,6 +9,8 @@ import lsp::translator;
 
 import dessert;
 
+import uri;
+
 import std::collections::list;
 
 // ---------------------------------------------------------------------
@@ -2171,4 +2173,41 @@ fn void locals_name_the_type_a_receiver_stands_for() => @pool() {
 	test::eq(test_support::local_detail_of(&session, RECEIVER_SRC, "s", "self"), "(param) Box*");
 	test::eq(test_support::local_detail_of(&session, VALUE_RECEIVER_SRC, "s", "self"), "(param) Box");
 	test::eq(test_support::local_detail_of(&session, MACRO_RECEIVER_SRC, "s", "self"), "(param) Box*");
+}
+
+// ---------------------------------------------------------------------
+// A file with nothing in it yet
+// ---------------------------------------------------------------------
+
+<*
+ The cursor does not always sit inside a node.
+
+ A lone `f` parses to an error node whose range stops short of the
+ cursor, so the lineage of nodes around the cursor is empty, and reading
+ its first and last entry segfaulted the server on the first character
+ typed into an empty file.
+*>
+fn void resolve_survives_a_file_with_no_nodes() => @pool() {
+	LspProject project;
+	project.init(mem);
+	defer project.free();
+
+	DocumentUri document_uri = (DocumentUri)"file:///virtual/blank.c3";
+
+	project.open_file({ .uri = document_uri, .text = "f", .version = 1 });
+	project.update();
+
+	Uri file_uri = uri::parse(tmem, document_uri)!!;
+
+	CompletionItem[] items = completion::resolve(&project, file_uri, { .line = 0, .character = 1 })!!;
+
+	// Nothing is in scope in an empty file, but the keywords are, and
+	// answering with them is what the client asked for.
+	test::@check(items.len > 0, "an empty file offered nothing at all");
+
+	bool has_keyword = false;
+	foreach (CompletionItem item : items) {
+		if (item.label == "fn") has_keyword = true;
+	}
+	test::@check(has_keyword, "the keywords are missing from an empty file");
 }
