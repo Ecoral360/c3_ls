@@ -109,7 +109,10 @@ fn Node* return_type_decl(TypeContext ctx, Node* callable) {
 fn Node* variable_decl(TypeContext ctx, String name) {
 	if (!ctx.file || name.len == 0) return null;
 
-	Scope* leaf = core::find_deepest_scope(ctx.file.root_rt_scope, ctx.location);
+	SemaModuleContext* sema_module = ctx.file.sema_module_at_location(ctx.location);
+	if (!sema_module) return null;
+
+	Scope* leaf = core::find_deepest_scope(sema_module.runtime_scope, ctx.location);
 	if (!leaf) return null;
 
 	VariableInfo* info = scope::get_variable(leaf, name);

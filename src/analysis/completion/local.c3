@@ -18,11 +18,14 @@ fn void provide_locals(Context* ctx, List{CompletionItem}* items) {
 
 	if (!ctx.file) return;
 
-	if (Scope* leaf = core::find_deepest_scope(ctx.file.root_rt_scope, ctx.location)) {
+	SemaModuleContext* sema_module = ctx.file.sema_module_at_location(ctx.location);
+	if (!sema_module) return;
+
+	if (Scope* leaf = core::find_deepest_scope(sema_module.runtime_scope, ctx.location)) {
 		provide_scope_locals(leaf, ctx, items);
 	}
 
-	if (Scope* leaf = core::find_deepest_scope(ctx.file.root_ct_scope, ctx.location)) {
+	if (Scope* leaf = core::find_deepest_scope(sema_module.comptime_scope, ctx.location)) {
 		provide_scope_locals(leaf, ctx, items);
 	}
 }
@@ -74,11 +77,8 @@ fn void provide_scope_locals(Scope* leaf, Context* ctx, List{CompletionItem}* it
 				details = ctx.dstring_pool.cat("(local) ", type_name);
 		}
 
-		items.push({ 
-			.label = name, 
-			.kind = kind, 
-			.detail = details, 
-			.sort_text = ctx.dstring_pool.cat("0001_", name) 
-		});
+		items.push(
+			{ .label = name, .kind = kind, .detail = details, .sort_text = ctx.dstring_pool.cat("0001_", name) }
+		);
 	}
 }

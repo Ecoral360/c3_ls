@@ -405,17 +405,25 @@ fn void session_analyze_keeps_the_scope_tree() => @pool() {
 	test_support::load(&session, test_support::FIXTURE_PATH, test_support::FIXTURE_SRC);
 	FileEntry* entry = session.entry(test_support::FIXTURE_PATH);
 
-	test::ne(entry.root_rt_scope, null);
-	test::eq(entry.root_rt_scope.parent, null);
-
 	Location in_body = test_support::loc_of(test_support::FIXTURE_SRC, "int sum");
-	Scope* leaf      = find_deepest_scope(entry.root_rt_scope, in_body);
+
+	// The scope tree hangs off the module the cursor is in, and a file
+	// declares one module per `module` line, so the root is looked up by
+	// position rather than kept on the file.
+	SemaModuleContext* sema_module = entry.sema_module_at_location(in_body);
+	test::ne(sema_module, null);
+
+	Scope* root = sema_module.runtime_scope;
+	test::ne(root, null);
+	test::eq(root.parent, null);
+
+	Scope* leaf = find_deepest_scope(root, in_body);
 	test::ne(leaf, null);
-	test::ne(leaf, entry.root_rt_scope);
+	test::ne(leaf, root);
 	test::ne(leaf.parent, null);
 
 	Location at_top = { .line = 0, .column = 0 };
-	test::eq(find_deepest_scope(entry.root_rt_scope, at_top), entry.root_rt_scope);
+	test::eq(find_deepest_scope(root, at_top), root);
 
 	test::eq(find_deepest_scope(null, in_body), null);
 }
@@ -435,7 +443,11 @@ fn void session_collect_visible() => @pool() {
 	FileEntry* entry = session.entry(test_support::FIXTURE_PATH);
 
 	Location in_body = test_support::loc_of(test_support::FIXTURE_SRC, "return sum");
-	Scope* leaf      = find_deepest_scope(entry.root_rt_scope, in_body);
+
+	SemaModuleContext* sema_module = entry.sema_module_at_location(in_body);
+	test::ne(sema_module, null);
+
+	Scope* leaf = find_deepest_scope(sema_module.runtime_scope, in_body);
 	test::ne(leaf, null);
 
 	List{VisibleVar} visible = collect_visible(tmem, leaf);
@@ -944,4 +956,28 @@ fn void incremental_index_matches_a_full_rebuild() => @pool() {
 	test::@check(session.find_in_module("inc", "beta").is_empty(), "the old module kept a moved symbol");
 	test::eq(session.find_symbols("Extra").len(), 1);
 	test::eq(session.find_symbols("add").len(), 1);
+}
+<*
+ A file with nothing in it still belongs to a module.
+
+ Sema writes its scopes into the module named after the file when there
+ is no `module` line, and indexing only ever created that module while
+ walking the file's statements - an empty buffer has none, so sema found
+ no module to write into and the analyzer dereferenced it anyway.
+*>
+fn void session_indexes_a_module_for_an_empty_file() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, "/virtual/blank.c3", "");
+
+	// The module is named after the file, the way sema infers it.
+	test::@check(session.ctx.modules.has_key("blank.c3"), "an empty file registered no module");
+
+	// The same holds for a buffer holding one unparsable word, which is
+	// what the first keystroke into an empty file leaves behind.
+	test_support::load(&session, "/virtual/typing.c3", "f");
+
+	test::@check(session.ctx.modules.has_key("typing.c3"), "a half typed file registered no module");
 }

@@ -62,8 +62,9 @@ struct FileEntry {
 	String path;
 	DynamicArenaAllocator arena;
 	SourceFile* sf;
-	Scope* root_rt_scope;
-	Scope* root_ct_scope;
+	HashMap{String, SemaModuleContext*} sema_modules;
+	// Scope* root_rt_scope;
+	// Scope* root_ct_scope;
 	LineIndex lines;
 	String text;
 
@@ -272,8 +273,9 @@ fn void LspSession.set_file(&self, String path, String text) {
 	}
 
 	entry.sf = null;
-	entry.root_rt_scope = null;
-	entry.root_ct_scope = null;
+	entry.sema_modules = { };
+	// entry.root_rt_scope = null;
+	// entry.root_ct_scope = null;
 
 	Allocator file_alloc = &entry.arena;
 	Allocator saved      = self.ctx.allocator;
@@ -315,6 +317,24 @@ fn void LspSession.remove_file(&self, String path) {
 	entry.arena.free();
 	entry.path.free(self.allocator);
 	alloc::free(self.allocator, entry);
+}
+
+<*
+ The sema context of the module the cursor is in, or null.
+
+ A file declares one module per `module` line, so which scope tree
+ answers a position is a question of where that position is. Nothing
+ covers a cursor past the end of the last line, which is where a file
+ with no trailing newline puts it, so callers have to handle null.
+*>
+fn SemaModuleContext* FileEntry.sema_module_at_location(&self, Location location) {
+	self.sema_modules.@each(; String mod_name, SemaModuleContext* sema_module) {
+		if (sema_module.runtime_scope && sema_module.runtime_scope.range.contains(location)) {
+			return sema_module;
+		}
+	};
+
+	return null;
 }
 
 <*
@@ -463,14 +483,8 @@ fn void LspSession.index(&self, String path) => @pool() {
 
 		// A file with no module declaration is named after itself, the same
 		// way registry::register infers it.
-		if (!current_mod) {
-			Path? file_path = path::tnew(entry.path);
-			if (catch err = file_path) {
-				diagnostics::log_error("Failed to infer module name: %s", err);
-				return;
-			}
-			current_mod = self.use_module(entry, file_path.basename());
-		}
+		if (!current_mod) current_mod = self.module_named_after(entry);
+		if (!current_mod) return;
 
 		mod::add_node(current_mod, node);
 		entry.index_node_ids.push((ulong)node.id);
@@ -512,6 +526,29 @@ fn void LspSession.index(&self, String path) => @pool() {
 			}
 		);
 	}
+
+	// A file with nothing in it yet still belongs to a module. Sema looks
+	// up the one named after the file when there is no `module` line, and
+	// a file whose statements never registered one - an empty buffer, or
+	// one holding a single unparsable word - left it with nothing to
+	// write its scopes into.
+	if (!current_mod) self.module_named_after(entry);
+}
+
+<*
+ The module a file with no `module` line belongs to: the one named after
+ the file itself.
+
+ @param [&inout] self
+*>
+fn Module* LspSession.module_named_after(&self, FileEntry* entry) {
+	Path? file_path = path::tnew(entry.path);
+	if (catch err = file_path) {
+		diagnostics::log_error("Failed to infer module name: %s", err);
+		return null;
+	}
+
+	return self.use_module(entry, file_path.basename());
 }
 
 <*
@@ -624,8 +661,9 @@ fn void LspSession.analyze(&self, String path) {
 
 	SemaContext* sema_ctx = sema::new(self.ctx);
 	sema::analyze_source_file(sema_ctx, entry.sf);
-	entry.root_rt_scope = sema_ctx.runtime_scope;
-	entry.root_ct_scope = sema_ctx.comptime_scope;
+	entry.sema_modules.init_from_map(self.ctx.allocator, &sema_ctx.modules);
+	// entry.root_rt_scope = sema_ctx.runtime_scope;
+	// entry.root_ct_scope = sema_ctx.comptime_scope;
 
 	self.ctx.allocator = saved;
 }
