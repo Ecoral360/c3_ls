@@ -62,7 +62,7 @@ struct FileEntry {
 	String path;
 	DynamicArenaAllocator arena;
 	SourceFile* sf;
-	HashMap{String, SemaModuleContext*} sema_modules;
+	HashMap{String, List{SemaModuleContext*}} sema_modules;
 	// Scope* root_rt_scope;
 	// Scope* root_ct_scope;
 	LineIndex lines;
@@ -328,9 +328,9 @@ fn void LspSession.remove_file(&self, String path) {
  with no trailing newline puts it, so callers have to handle null.
 *>
 fn SemaModuleContext* FileEntry.sema_module_at_location(&self, Location location) {
-	self.sema_modules.@each(; String mod_name, SemaModuleContext* sema_module) {
-		if (sema_module.runtime_scope && sema_module.runtime_scope.range.contains(location)) {
-			return sema_module;
+	self.sema_modules.@each(; String mod_name, List{SemaModuleContext*} sema_modules) {
+		foreach (sema_module : sema_modules) {
+			if (sema_module.range.contains(location)) return sema_module;
 		}
 	};
 
