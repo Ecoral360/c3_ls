@@ -13,7 +13,6 @@ import std::collections::set;
 import lsp::core;
 import uri;
 
-
 <*
  The session keeps every file's lexer alive, so the token list is already
  built; nothing needs re-lexing here.
@@ -157,6 +156,14 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 
 	if (ctx.scope == IMPORT) {
 		provide_imports(&ctx, &items);
+		return finish(&items);
+	}
+
+	// A name is being declared, and nothing that already exists can be
+	// written there: a local, a global, a module path or a keyword would
+	// all be a redeclaration or a syntax error.
+	if (ctx.scope == VAR_DECL) {
+		provide_decl_name(&ctx, &items);
 		return finish(&items);
 	}
 

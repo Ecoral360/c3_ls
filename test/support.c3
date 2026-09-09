@@ -443,6 +443,27 @@ fn String[] member_labels_of(LspSession* session, String src, String typed) {
 }
 
 <*
+ Labels of the declaration-name completions offered with `typed` written
+ on the PLACEHOLDER line of `src`.
+*>
+fn String[] decl_names_for(LspSession* session, String src, String typed) {
+	String text = src.treplace("PLACEHOLDER", typed);
+	load(session, "/virtual/typed.c3", text);
+
+	Context ctx = make_completion_context(session, "/virtual/typed.c3", placeholder_cursor(src, text, typed));
+
+	List{CompletionItem} items;
+	items.tinit();
+	completion::provide_decl_name(&ctx, &items);
+
+	List{String} labels;
+	labels.tinit();
+	foreach (CompletionItem item : items) labels.push(item.label);
+
+	return labels.to_tarray();
+}
+
+<*
  Detail string of the local completion labelled `label`, offered with
  `typed` written on the PLACEHOLDER line of `src`.
 *>

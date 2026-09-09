@@ -148,6 +148,10 @@ fn CompletionContextKind find_ctx_completion_kind(Context* ctx, Location cursor_
 	// while an import is being typed.
 	if (import_prefix_at(ctx, cursor_loc).found) return IMPORT;
 
+	// Token driven for the same reason, and ahead of the AST for it too: a
+	// declaration whose name is still missing does not parse.
+	if (completion::decl_name_site_at(ctx).found) return VAR_DECL;
+
 	if (ctx.leaf_node && ctx.leaf_node.kind == CONTRACT_DECL) {
 		return CONTRACT;
 	}

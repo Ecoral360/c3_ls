@@ -3,6 +3,7 @@ module lsp::analysis::completion;
 import analyzer::core;
 import analyzer::cursor;
 import analyzer::lexer;
+import analyzer::parser;
 
 import lsp::core;
 
@@ -133,7 +134,7 @@ fn Node* assigned_type(Context* ctx, sz brace, sz i) @local {
  end of it: `List{int}` ends on the '}' that closes them, and the name
  worth resolving is the one in front of that '{'.
 *>
-fn sz type_start(Context* ctx, sz last) @local {
+fn sz type_start(Context* ctx, sz last) @private {
 	sz i = last;
 
 	if (i >= 0 && ctx.tokens[i].kind == RBRACE) {
@@ -143,7 +144,7 @@ fn sz type_start(Context* ctx, sz last) @local {
 		i = open - 1;
 	}
 
-	if (i < 0 || ctx.tokens[i].kind != TYPE_IDENT) return -1;
+	if (i < 0 || (ctx.tokens[i].kind != TYPE_IDENT && !parser::is_type_primitive(ctx.tokens[i].kind))) return -1;
 
 	return i;
 }

@@ -193,7 +193,7 @@ fn void find_scope_classifies_positions() => @pool() {
 		SCOPE_PATH,
 		test_support::loc_of(SCOPE_SRC, "at_top")
 	);
-	test::eq(at_global.scope, CompletionContextKind.GLOBAL);
+	test::eq(at_global.scope, CompletionContextKind.VAR_DECL);
 
 	Context in_struct = test_support::make_completion_context(
 		&session,
@@ -2210,4 +2210,199 @@ fn void resolve_survives_a_file_with_no_nodes() => @pool() {
 		if (item.label == "fn") has_keyword = true;
 	}
 	test::@check(has_keyword, "the keywords are missing from an empty file");
+}
+
+// ---------------------------------------------------------------------
+// Naming a declaration after its type
+// ---------------------------------------------------------------------
+
+const String DECL_NAME_SRC = `module names;
+
+struct Point
+{
+	int x;
+}
+
+struct HTTPServer
+{
+	int port;
+}
+
+fn void go()
+{
+	PLACEHOLDER
+}
+`;
+
+const String DECL_PARAM_SRC = `module names;
+
+struct Point
+{
+	int x;
+}
+
+fn void go(PLACEHOLDER
+`;
+
+const String DECL_FIELD_SRC = `module names;
+
+struct Point
+{
+	int x;
+}
+
+struct Holder
+{
+	PLACEHOLDER
+}
+`;
+
+const String DECL_FILE_SRC = `module names;
+
+struct Point
+{
+	int x;
+}
+
+PLACEHOLDER
+`;
+
+<*
+ `Point ` is nearly always followed by `point`, wherever it is written.
+*>
+fn void decl_name_offers_the_type_in_snake_case() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] local = test_support::decl_names_for(&session, DECL_NAME_SRC, "Point ");
+	test::eq(local.len, 1);
+	test::eq(local[0], "point");
+
+	// The same declaration shape reads the same in a parameter list, in a
+	// struct body and at file scope.
+	test::eq(test_support::decl_names_for(&session, DECL_PARAM_SRC, "Point ")[0], "point");
+	test::eq(test_support::decl_names_for(&session, DECL_PARAM_SRC, "int a, Point ")[0], "point");
+	test::eq(test_support::decl_names_for(&session, DECL_FIELD_SRC, "Point ")[0], "point");
+	test::eq(test_support::decl_names_for(&session, DECL_FIELD_SRC, "int x;\n\tPoint ")[0], "point");
+	test::eq(test_support::decl_names_for(&session, DECL_FILE_SRC, "Point ")[0], "point");
+
+	// A run of capitals is one word, and the last of them starts the next.
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "HTTPServer ")[0], "http_server");
+
+	// What hangs off the end of a type says how many there are, not what
+	// they are.
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "Point* ")[0], "point");
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "Point[] ")[0], "point");
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "Point[4] ")[0], "point");
+
+	// And it still matches what has been typed of the name already.
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "Point poi")[0], "point");
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "Point z").len, 0);
+}
+
+<*
+ A stdlib type has nothing to say about the variable.
+
+ Every `String` would be named `string` and every `List` `list`, which is
+ not a name, so those are left alone.
+*>
+fn void decl_name_skips_the_standard_library() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	session.set_file("/virtual/std_string.c3", "module std::core::string;\n\nstruct String\n{\n\tint len;\n}\n");
+	session.set_file("/virtual/libc.c3", "module libc;\n\nstruct Fd\n{\n\tint raw;\n}\n");
+
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "String ").len, 0);
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "Fd ").len, 0);
+
+	// A type the workspace declares itself is still offered, and so is one
+	// that resolves to nothing yet - a type being written for the first
+	// time is exactly when the name has to be invented.
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "Point ").len, 1);
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "NotDeclared ")[0], "not_declared");
+}
+
+<*
+ A type name reads the same wherever it is written, so what settles it is
+ what comes before: nothing here declares a variable.
+*>
+fn void decl_name_stays_out_of_everything_else() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	// The name after `fn` is the function's, not a variable's.
+	test::eq(test_support::decl_names_for(&session, DECL_FILE_SRC, "fn Point ").len, 0);
+
+	// The type itself is still being typed.
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "Point").len, 0);
+
+	// Nothing was written to derive a name from.
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "poi").len, 0);
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "").len, 0);
+
+	// A cast is an expression, and `= Point` is not a declaration either.
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "int q = (Point)").len, 0);
+	test::eq(test_support::decl_names_for(&session, DECL_NAME_SRC, "int q = Point ").len, 0);
+}
+
+<*
+ Declaring a name is a context of its own.
+
+ Everything else the completion knows how to offer - a local, a global, a
+ module path, a keyword - would be a redeclaration or a syntax error
+ where the name goes, so the derived name is the whole answer.
+*>
+fn void decl_name_is_the_only_completion_in_a_declaration() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String text = DECL_NAME_SRC.treplace("PLACEHOLDER", "Point ");
+	test_support::load(&session, "/virtual/typed.c3", text);
+
+	Context ctx = test_support::make_completion_context(
+		&session,
+		"/virtual/typed.c3",
+		test_support::placeholder_cursor(DECL_NAME_SRC, text, "Point ")
+	);
+
+	test::eq(ctx.scope, CompletionContextKind.VAR_DECL);
+
+	// Even asked directly, the keywords decline the context.
+	List{CompletionItem} keywords;
+	keywords.tinit();
+	completion::provide_keywords(&ctx, &keywords);
+	test::eq(keywords.len(), 0);
+}
+
+<*
+ And the same thing through the request the editor actually sends.
+*>
+fn void resolve_answers_a_declaration_with_the_name_alone() => @pool() {
+	LspProject project;
+	project.init(mem);
+	defer project.free();
+
+	DocumentUri document_uri = (DocumentUri)"file:///virtual/decl.c3";
+	Uri file_uri             = uri::parse(tmem, document_uri)!!;
+
+	String text = DECL_NAME_SRC.treplace("PLACEHOLDER", "Point ");
+
+	project.open_file({ .uri = document_uri, .text = text, .version = 1 });
+	project.update();
+
+	Location cursor = test_support::placeholder_cursor(DECL_NAME_SRC, text, "Point ");
+
+	CompletionItem[] items = completion::resolve(
+		&project,
+		file_uri,
+		{ .line = (uint)cursor.line, .character = (uint)cursor.column }
+	)!!;
+
+	test::eq(items.len, 1);
+	test::eq(items[0].label, "point");
 }

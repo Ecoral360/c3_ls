@@ -61,6 +61,10 @@ fn void provide_keywords(Context* ctx, List{CompletionItem}* items) {
 				if (!kw.is_statement() && !kw.is_expression()) continue;
 				break;
 
+			// The one thing a name being declared cannot be is a keyword.
+			case VAR_DECL:
+				continue;
+
 			case TYPE_ASSIGNMENT:
 				if (!kw.is_value()) continue;
 				break;
