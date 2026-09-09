@@ -521,11 +521,11 @@ fn void LspSession.index(&self, String path) => @pool() {
  @param [&inout] entry
 *>
 fn Module* LspSession.use_module(&self, FileEntry* entry, String name) {
-	// mod::new stores the name pointer as given, and the identifier it came
+	// mod::register stores the name pointer as given, and the identifier it came
 	// from lives in the file arena that set_file resets. Copy on creation
 	// only, so re-registering an existing module costs nothing.
 	Module* module_ptr = self.ctx.modules.get(name) ?? null;
-	if (!module_ptr) module_ptr = mod::new(self.ctx, name.copy(&self.index_arena));
+	if (!module_ptr) module_ptr = mod::register(self.ctx, name.copy(&self.index_arena));
 
 	foreach (String known : entry.index_modules) {
 		if (known == module_ptr.name) return module_ptr;
