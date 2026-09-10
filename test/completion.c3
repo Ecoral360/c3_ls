@@ -2422,17 +2422,17 @@ fn void contract_offers_the_directives_after_an_at() => @pool() {
 
 	CompletionItem[] all = test_support::contract_items_for(&session, "@");
 	test::eq(all.len, 6);
-	test::eq(all[0].label, "@require");
-	test::eq(all[1].label, "@ensure");
-	test::eq(all[2].label, "@param");
-	test::eq(all[3].label, "@return");
-	test::eq(all[4].label, "@return?");
-	test::eq(all[5].label, "@pure");
+	test::eq(all[0].label, "@ensure");
+	test::eq(all[1].label, "@param");
+	test::eq(all[2].label, "@pure");
+	test::eq(all[3].label, "@require");
+	test::eq(all[4].label, "@return");
+	test::eq(all[5].label, "@return?");
 
 	// The '@' is written already and is not a word character, so what goes
 	// in is the rest of the name.
-	test::eq(all[0].insert_text, "require");
-	test::eq(all[0].filter_text, "require");
+	test::eq(all[3].insert_text, "require");
+	test::eq(all[3].filter_text, "require");
 
 	// And it narrows as the name is typed.
 	CompletionItem[] narrowed = test_support::contract_items_for(&session, "@par");

@@ -18,12 +18,12 @@ struct ContractAttribute @local {
 }
 
 const ContractAttribute[] CONTRACT_ATTRIBUTES @local = {
-	{ "@require", "A condition the caller has to meet: `@require x > 0`." },
 	{ "@ensure", "A condition this declaration guarantees on return." },
 	{ "@param", "What one parameter is: `@param x` and then its description." },
+	{ "@pure", "Declares that this reads nothing outside its parameters." },
+	{ "@require", "A condition the caller has to meet: `@require x > 0`." },
 	{ "@return", "What the call comes back with." },
 	{ "@return?", "The faults it can return instead: `@return? IoError.EOF`." },
-	{ "@pure", "Declares that this reads nothing outside its parameters." },
 };
 
 fn void provide_contract(Context* ctx, List{CompletionItem}* items) {
