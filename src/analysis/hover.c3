@@ -98,7 +98,7 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 		if (try ContractDecl* contract = cursor::contract(origin.node)) {
 			String documented = contract_markdown(&project.session, contract, origin.owner);
 			if (documented.len > 0) {
-				output.push(string::tformat("%s\n\n%s", signature, documented));
+				output.push(string::tformat("```c3\n%s\n```\n\n%s", signature, documented));
 				continue;
 			}
 		}
