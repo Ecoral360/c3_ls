@@ -23,7 +23,7 @@ const ContractAttribute[] CONTRACT_ATTRIBUTES @local = {
 	{ "@pure", "Declares that this reads nothing outside its parameters." },
 	{ "@require", "A condition the caller has to meet: `@require x > 0`." },
 	{ "@return", "What the call comes back with." },
-	{ "@return?", "The faults it can return instead: `@return? IoError.EOF`." },
+	{ "@return?", "The faults it can return instead: `@return? NOT_FOUND`." },
 };
 
 fn void provide_contract(Context* ctx, List{CompletionItem}* items) {

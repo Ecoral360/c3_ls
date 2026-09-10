@@ -1,6 +1,7 @@
 module lsp::analysis::hover @test;
 
 import analyzer::core;
+import analyzer::cursor;
 
 import lsp::core;
 import lsp::test_support;
@@ -67,4 +68,81 @@ fn void receiver_signature_names_the_associated_type() => @pool() {
 	// An ordinary parameter is not a receiver, and neither is a non node.
 	test::eq(receiver_signature(sf, test_support::loc_of(RECEIVER_SRC, "int b = a"), param), "");
 	test::eq(receiver_signature(sf, in_ref_body, null), "");
+}
+const String CONTRACT_SRC = `module documented;
+
+<*
+ Doubles a number.
+
+ @param [in] x : "the number to double"
+ @param plain
+ @require x > 0 : "must be positive"
+ @require x < 100
+ @ensure return > x
+ @return "twice x"
+ @return? IoError.EOF, IoError.FILE_NOT_FOUND
+ @pure
+ @deprecated "use scale instead"
+*>
+fn int twice(int x, int plain)
+{
+	return x * 2;
+}
+
+<*
+ Says nothing else.
+*>
+fn void described()
+{
+}
+
+fn void bare()
+{
+}
+`;
+
+const String CONTRACT_PATH = "/virtual/documented.c3";
+
+<*
+ A doc comment is more than its description, and everything else in it is
+ what a caller reads a signature for.
+*>
+fn void contract_markdown_renders_every_directive() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, CONTRACT_PATH, CONTRACT_SRC);
+
+	FileEntry* entry = session.entry(CONTRACT_PATH);
+	Node* twice      = test_support::find_top_level(&session, CONTRACT_PATH, "twice");
+
+	ContractDecl* contract = cursor::contract(twice)!!;
+
+	test::eq(
+		contract_markdown(&session, contract, entry),
+		"Doubles a number.\n\n**Parameters**\n- `[in] x` - the number to double\n- `plain`\n\n**Requires**\n- `x > 0` - must be positive\n- `x < 100`\n\n**Ensures**\n- `return > x`\n\n**Returns** twice x\n\n**Faults**\n- `IoError.EOF`\n- `IoError.FILE_NOT_FOUND`\n\n**Pure**\n\n**Deprecated** use scale instead"
+	);
+}
+
+<*
+ The description alone is still the common case, and a declaration with
+ no doc comment at all has to come back empty so the hover falls back to
+ the signature.
+*>
+fn void contract_markdown_handles_the_plain_cases() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, CONTRACT_PATH, CONTRACT_SRC);
+
+	FileEntry* entry = session.entry(CONTRACT_PATH);
+
+	Node* described = test_support::find_top_level(&session, CONTRACT_PATH, "described");
+	test::eq(contract_markdown(&session, cursor::contract(described)!!, entry), "Says nothing else.");
+
+	// cursor::contract answers with a null for an undocumented one.
+	Node* bare = test_support::find_top_level(&session, CONTRACT_PATH, "bare");
+	test::eq(contract_markdown(&session, cursor::contract(bare) ?? null, entry), "");
 }

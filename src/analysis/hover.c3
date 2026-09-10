@@ -16,22 +16,22 @@ import analyzer::lexer;
 // 	String name = (param.ident ?: &&(Ident) { }).text;
 // 	String description = (param.description ?: &&(Ident) { }).text;
 // 	InOutModifier modifier = param.modifier;
-//
+// 
 // 	String modifier_str = modifier == IN ? "" : string::tformat(`[&%s] `, modifier.description.to_lower_tcopy());
-//
+// 
 // 	return string::tformat(`@param %s%s : %s`, modifier_str, name, description);
 // }
-//
+// 
 // fn String contract_to_string(ContractDecl* contract) {
 // 	String comment = (contract.comment ?: &&(Ident) { }).text;
-//
+// 
 // 	List{String} params;
 // 	params.tinit();
 // 	foreach (param_node : contract.params) {
 // 		ContractParam* param = param_node.as(ContractParam);
 // 		params.push(contract_param_to_string(param));
 // 	}
-//
+// 
 // 	return string::tformat("%s\n%s", comment, string::tjoin(params.array_view(), "\n"));
 // }
 
@@ -96,8 +96,9 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 		// hovering anything undocumented - most methods included - showed
 		// nothing at all.
 		if (try ContractDecl* contract = cursor::contract(origin.node)) {
-			if (contract && contract.comment && contract.comment.text.len > 0) {
-				output.push(string::tformat("%s\n\n%s", signature, contract.comment.text.trim()));
+			String documented = contract_markdown(&project.session, contract, origin.owner);
+			if (documented.len > 0) {
+				output.push(string::tformat("%s\n\n%s", signature, documented));
 				continue;
 			}
 		}
@@ -108,6 +109,149 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 	return string::tjoin(output.array_view(), "\n---\n");
 
 	// return cursor::spelling(node, tmem);
+}
+
+fn String contract_markdown(LspSession* session, ContractDecl* contract, FileEntry* owner) @private {
+	if (!contract) return "";
+
+	DString md = dstring::temp_with_capacity(256);
+
+	if (contract.comment && contract.comment.text.len > 0) {
+		md.append(unquoted(contract.comment.text));
+	}
+
+	if (contract.params.len > 0) {
+		md.append("\n\n**Parameters**");
+
+		foreach (Node* param_node : contract.params) {
+			if (!param_node) continue;
+
+			ContractParam* param = param_node.as(ContractParam);
+			String name          = param.ident ? param.ident.text : "...";
+
+			md.appendf("\n- `%s%s`", modifier_text(param.modifier, param.by_ref), name);
+			append_description(md, param.description);
+		}
+	}
+
+	if (contract.requires.len > 0) {
+		md.append("\n\n**Requires**");
+
+		foreach (Node* require_node : contract.requires) {
+			if (!require_node) continue;
+
+			ContractRequire* required = require_node.as(ContractRequire);
+			String pinpoint           = required.param_pinpoint ? required.param_pinpoint.text : "";
+
+			append_condition(
+				md,
+				session,
+				owner,
+				required.expr,
+				pinpoint.len > 0 ? string::tformat("[%s] ", pinpoint) : ""
+			);
+			append_description(md, required.description);
+		}
+	}
+
+	append_expressions(md, session, owner, contract.ensures, "**Ensures**");
+
+	if (contract.return_desc) {
+		md.appendf("\n\n**Returns** %s", unquoted(session.node_source_text(contract.return_desc, owner)));
+	}
+
+	append_expressions(md, session, owner, contract.returns, "**Faults**");
+
+	if (contract.is_pure) md.append("\n\n**Pure**");
+
+	if (contract.deprecated) {
+		md.append("\n\n**Deprecated**");
+
+		foreach (Node* reason : contract.deprecated.as(AttributeDecl).exprs) {
+			md.appendf(" %s", unquoted(session.node_source_text(reason, owner)));
+		}
+	}
+
+	return md.str_view().trim();
+}
+
+<*
+ @param [&inout] md
+*>
+fn void append_expressions(
+	DString md,
+	LspSession* session,
+	FileEntry* owner,
+	NodeArray exprs,
+	String heading
+) @private {
+	if (exprs.len == 0) return;
+
+	md.appendf("\n\n%s", heading);
+
+	foreach (Node* expr : exprs) {
+		append_condition(md, session, owner, expr, "");
+	}
+}
+
+<*
+ @param [&inout] md
+*>
+fn void append_condition(DString md, LspSession* session, FileEntry* owner, Node* node, String prefix) @private {
+	if (!node) return;
+
+	if (node.kind != CONTRACT_EXPR) {
+		md.appendf("\n- `%s%s`", prefix, session.node_source_text(node, owner).trim());
+		return;
+	}
+
+	ContractExpr* condition = node.as(ContractExpr);
+
+	md.appendf("\n- `%s%s`", prefix, session.node_source_text(condition.exprs, owner).trim());
+
+	if (condition.expr_string) {
+		md.appendf(" - %s", unquoted(session.node_source_text(condition.expr_string, owner)));
+	}
+}
+
+<*
+ @param [&inout] md
+*>
+fn void append_description(DString md, Ident* description) @private {
+	if (!description) return;
+
+	String text = unquoted(description.text);
+	if (text.len == 0) return;
+
+	md.appendf(" - %s", text);
+}
+
+fn String unquoted(String text) @private {
+	String trimmed = text.trim();
+	if (trimmed.len < 2) return trimmed;
+
+	char first = trimmed[0];
+	if ((first == '"' || first == '`') && trimmed[^1] == first) return trimmed[1..^2];
+
+	return trimmed;
+}
+
+<*
+ `[&inout] ` for a parameter that declares one, empty otherwise.
+*>
+fn String modifier_text(InOutModifier modifier, bool by_ref) @private {
+	String name;
+
+	switch (modifier) {
+		case IN: name = "in";
+		case OUT: name = "out";
+		case INOUT: name = "inout";
+		case DROP: name = "drop";
+		case OWN: name = "own";
+		default: return "";
+	}
+
+	return string::tformat("[%s%s] ", by_ref ? "&" : "", name);
 }
 
 <*

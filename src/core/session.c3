@@ -762,9 +762,14 @@ fn Module* LspSession.module_for_file(&self, String path) {
  The analyzer's `cursor::source_text` is commented out upstream, so this
  reimplements it over the file's line index.
 *>
-fn String LspSession.node_source_text(&self, Node* node) {
-	FileEntry* entry = self.entry_for_node(node);
-	if (!entry || !node) return "";
+fn String LspSession.node_source_text(&self, Node* node, FileEntry* owner = null) {
+	if (!node) return "";
+
+	// node_owner only knows top level statements, so anything nested - a
+	// contract expression, a struct field - needs the file handed in.
+	FileEntry* entry = owner ?: self.entry_for_node(node);
+	if (!entry) return "";
+
 	return entry.lines.slice(node.range);
 }
 
