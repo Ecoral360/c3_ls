@@ -83,6 +83,21 @@ fn void provide_keywords(Context* ctx, List{CompletionItem}* items) {
 	}
 }
 
+<*
+ Index of the last token that starts before the cursor, or -1.
+*>
+fn sz cursor_token_index(Context* ctx) {
+	sz last = -1;
+
+	for (sz i = 0; i < ctx.tokens.len(); i++) {
+		if (!analysis::is_before(ctx.tokens[i].range.start, ctx.location)) break;
+
+		last = i;
+	}
+
+	return last;
+}
+
 fn bool name_matches_fuzzy(String symbol_name, String prefix) {
 	foreach (c : prefix) {
 		if (try idx = symbol_name.index_of_char(c)) {

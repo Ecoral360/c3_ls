@@ -159,6 +159,13 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 		return finish(&items);
 	}
 
+	// A contract is prose with directives in it, and an identifier is
+	// neither: what belongs there is the directive list, or nothing.
+	if (ctx.scope == CONTRACT) {
+		provide_contract(&ctx, &items);
+		return finish(&items);
+	}
+
 	// A name is being declared, and nothing that already exists can be
 	// written there: a local, a global, a module path or a keyword would
 	// all be a redeclaration or a syntax error.
@@ -179,7 +186,6 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 
 	provide_locals(&ctx, &items);
 
-	provide_contract(&ctx, &items);
 	provide_global(&ctx, &items);
 	provide_module_paths(&ctx, &items);
 	provide_keywords(&ctx, &items);

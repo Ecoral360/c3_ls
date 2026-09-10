@@ -2406,3 +2406,104 @@ fn void resolve_answers_a_declaration_with_the_name_alone() => @pool() {
 	test::eq(items.len, 1);
 	test::eq(items[0].label, "point");
 }
+
+// ---------------------------------------------------------------------
+// Contracts
+// ---------------------------------------------------------------------
+
+<*
+ A contract is prose with directives in it, and the '@' is what says
+ which of the two is being written.
+*>
+fn void contract_offers_the_directives_after_an_at() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	CompletionItem[] all = test_support::contract_items_for(&session, "@");
+	test::eq(all.len, 6);
+	test::eq(all[0].label, "@require");
+	test::eq(all[1].label, "@ensure");
+	test::eq(all[2].label, "@param");
+	test::eq(all[3].label, "@return");
+	test::eq(all[4].label, "@return?");
+	test::eq(all[5].label, "@pure");
+
+	// The '@' is written already and is not a word character, so what goes
+	// in is the rest of the name.
+	test::eq(all[0].insert_text, "require");
+	test::eq(all[0].filter_text, "require");
+
+	// And it narrows as the name is typed.
+	CompletionItem[] narrowed = test_support::contract_items_for(&session, "@par");
+	test::eq(narrowed.len, 1);
+	test::eq(narrowed[0].label, "@param");
+
+	// What comes back and which faults come back instead are two
+	// directives, so the name they share offers both.
+	CompletionItem[] returns = test_support::contract_items_for(&session, "@return");
+	test::eq(returns.len, 2);
+	test::eq(returns[0].label, "@return");
+	test::eq(returns[1].label, "@return?");
+	test::eq(returns[1].insert_text, "return?");
+
+	test::eq(test_support::contract_items_for(&session, "@pu")[0].label, "@pure");
+	test::eq(test_support::contract_items_for(&session, "@x").len, 0);
+}
+
+<*
+ Prose is the larger half of a contract, and completing identifiers into
+ a sentence is noise.
+
+ The lexer draws the line in the same place: everything up to a line
+ starting with '@' is one DOCS_TEXT token, so a '@' written mid sentence
+ is still prose.
+*>
+fn void contract_offers_nothing_in_the_description() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::contract_items_for(&session, "").len, 0);
+	test::eq(test_support::contract_items_for(&session, "some text").len, 0);
+	test::eq(test_support::contract_items_for(&session, "see @re").len, 0);
+
+	// Past the directive name comes its argument, which is not one of
+	// these either.
+	test::eq(test_support::contract_items_for(&session, "@param ").len, 0);
+}
+
+<*
+ And the directives are the whole answer: the locals, the globals, the
+ module paths and the keywords all stay out of a doc comment.
+*>
+fn void resolve_answers_a_contract_with_the_directives_alone() => @pool() {
+	LspProject project;
+	project.init(mem);
+	defer project.free();
+
+	DocumentUri document_uri = (DocumentUri)"file:///virtual/contract.c3";
+	Uri file_uri             = uri::parse(tmem, document_uri)!!;
+
+	String text = test_support::CONTRACT_SRC.treplace("PLACEHOLDER", "@");
+
+	project.open_file({ .uri = document_uri, .text = text, .version = 1 });
+	project.update();
+
+	Location at_directive = test_support::placeholder_cursor(test_support::CONTRACT_SRC, text, "@");
+	Location in_prose     = test_support::loc_after(text, "Does a thing.");
+
+	CompletionItem[] directives = completion::resolve(
+		&project,
+		file_uri,
+		{ .line = (uint)at_directive.line, .character = (uint)at_directive.column }
+	)!!;
+	test::eq(directives.len, 6);
+
+	CompletionItem[] prose = completion::resolve(
+		&project,
+		file_uri,
+		{ .line = (uint)in_prose.line, .character = (uint)in_prose.column }
+	)!!;
+	test::eq(prose.len, 0);
+}

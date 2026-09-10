@@ -442,6 +442,35 @@ fn String[] member_labels_of(LspSession* session, String src, String typed) {
 	return labels.to_tarray();
 }
 
+const String CONTRACT_SRC = `module docs;
+
+<*
+ Does a thing.
+ PLACEHOLDER
+ @param x "the thing"
+*>
+fn void go(int x)
+{
+}
+`;
+
+<*
+ The completions offered with `typed` written on the PLACEHOLDER line of
+ a doc comment, paired with what picking one inserts.
+*>
+fn CompletionItem[] contract_items_for(LspSession* session, String typed) {
+	String text = CONTRACT_SRC.treplace("PLACEHOLDER", typed);
+	load(session, "/virtual/docs.c3", text);
+
+	Context ctx = make_completion_context(session, "/virtual/docs.c3", placeholder_cursor(CONTRACT_SRC, text, typed));
+
+	List{CompletionItem} items;
+	items.tinit();
+	completion::provide_contract(&ctx, &items);
+
+	return items.to_tarray();
+}
+
 <*
  Labels of the declaration-name completions offered with `typed` written
  on the PLACEHOLDER line of `src`.
