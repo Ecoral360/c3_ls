@@ -1,0 +1,47 @@
+{
+  "authors": [
+    "John Doe <john.doe@example.com>"
+  ],
+  "build-dir": "build",
+  "cpu": "generic",
+  "debug-info": "full",
+  "dependencies": ["seali"],
+  "dependency-search-paths": [
+    "lib"
+  ],
+  "features": [
+    "SEMA"
+  ],
+  "langrev": "1",
+  "opt": "O0",
+  "output": "build",
+  "sources": [
+    "src/**",
+    "bench/benchmark.c3"
+  ],
+  "targets": {
+    "c3-analyzer": {
+      "dependencies": [
+        "seali"
+      ],
+      "features": [
+        "ANALYZER_CLI",
+        "ANALYZER_PRINT"
+      ],
+      "type": "executable"
+    },
+    "c3-analyzer-lib": {
+      "features": [
+        "ANALYZER_LIB"
+      ],
+      "type": "static-lib"
+    }
+  },
+  "test-sources": [
+    "test/**"
+  ],
+  "version": "0.1.0",
+  "warnings": [
+    "no-unused"
+  ]
+}

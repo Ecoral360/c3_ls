@@ -1,0 +1,10 @@
+build/
+out/
+obj
+
+ast-debug
+
+.direnv/
+.vscode
+.idea
+.lsp-cache

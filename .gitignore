@@ -3,3 +3,4 @@ build/
 log.txt
 .idea/
 .vscode/
+lib/**/.git

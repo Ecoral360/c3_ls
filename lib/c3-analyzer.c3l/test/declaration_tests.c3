@@ -1,0 +1,1241 @@
+module decl_tests @test;
+
+import parser_tests;
+
+import analyzer::parser;
+import analyzer::lexer;
+import analyzer::core;
+import analyzer::sema;
+import std::io;
+import std::collections::list;
+import std::io::file;
+import std::io::path;
+
+fn void basic_module()
+{
+	String source_code = `
+		<* doc *>
+		module hello <Type, Second> @local;
+
+		fn void greet() {}
+	`;
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	test::eq(mod.name, "hello");
+
+	test::eq(parser_tests::count_kind(mod, MODULE_DECL), 1);
+	test::eq(parser_tests::count_kind(mod, FN_DECL), 1);
+}
+
+fn void function_with_params()
+{
+	String source_code = `
+		module hello;
+		fn void greet(int foo, Bar baz) => @pool() {}
+		fn int get_int() => 10;
+		fn void foo(Type... name) {}
+		fn void default_value(Type name = 15) {}
+		fn void untyped_variadic(...) {}
+		fn void with_attributes(Type name @noalias) {}
+		fn void untyped(args...) {}
+		fn void path_prefixed(bar::Foo* foo) {}
+	`;
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	test::eq(parser_tests::count_kind(mod, MODULE_DECL), 1);
+	test::eq(parser_tests::count_kind(mod, FN_DECL), 8);
+}
+
+fn void method_with_params()
+{
+	String source_code = `
+		module hello;
+		fn void Foo.greet(&self, Bar baz) {}
+		fn void Foo.greet_2(self, Bar baz) {}
+	`;
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	// TODO should this work?
+	FunctionInfo* func_info = context.registry.functions.get("hello::greet")!!;
+	test::ne(func_info, null);
+	FnDecl* func = func_info.node.as(FnDecl);
+	TypeExpr* type = func.associated_type.as(TypeExpr);
+	test::eq(type.unresolved.name.text, "Foo");
+
+
+	test::eq(parser_tests::count_kind(mod, MODULE_DECL), 1);
+	test::eq(parser_tests::count_kind(mod, FN_DECL), 2);
+}
+
+fn void macro_with_params()
+{
+	String source_code = `
+		module hello;
+		macro void greet(int foo, Bar baz) <Foo> {}
+		macro foo(int foo, Bar baz) {}
+		macro bar(int foo, Bar baz) => 2;
+	`;
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	assert(context.registry.macros.has_key("hello::greet"));
+	assert(context.registry.macros.has_key("hello::foo"));
+	assert(context.registry.macros.has_key("hello::bar"));
+
+	MacroInfo* macro_info = context.registry.macros.get("hello::greet")!!;
+	MacroDecl* macro_decl = macro_info.node.as(MacroDecl);
+	test::eq(macro_decl.name.text, "greet");
+
+	macro_info = context.registry.macros.get("hello::foo")!!;
+	macro_decl = macro_info.node.as(MacroDecl);
+	test::eq(macro_decl.name.text, "foo");
+
+	macro_info = context.registry.macros.get("hello::bar")!!;
+	macro_decl = macro_info.node.as(MacroDecl);
+	test::eq(macro_decl.name.text, "bar");
+
+	test::eq(parser_tests::count_kind(mod, MODULE_DECL), 1);
+	test::eq(parser_tests::count_kind(mod, MACRO_DECL), 3);
+}
+
+fn void macro_method_with_params()
+{
+	String source_code = `
+		module hello;
+		macro void Foo.greet(&self, Bar baz) {}
+		macro Foo.wow(&self, Bar bar) {}
+		macro @expect_else_skip(ParseContext* ctx, TokenKind kind, TokenKind[] targets; @body(err)) {}
+	`;
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	MacroDecl* mac = mod.nodes[1].as(MacroDecl);
+
+	test::eq(parser_tests::count_kind(mod, MODULE_DECL), 1);
+	test::eq(parser_tests::count_kind(mod, MACRO_DECL), 3);
+}
+
+fn void alias_declarations_parse()
+{
+	String source_code = `module hello;
+		alias IntList = List{int};
+		alias Stack<Ty> = List{Ty};
+		alias mc = module my::collection;
+		alias old_name = new_name;
+		alias OLD_CONST = constants::NEW_CONST;
+		alias @old = @new;
+		alias int_map = map::new {String, int};
+		alias ElementPredicate = fn bool(Type *type);
+		alias NamedList @private @AliasAttr = List{int};
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	test::eq(mod.nodes.len(), 10);
+
+	Node* type_node = mod.nodes[1];
+	test::eq(type_node.kind, NodeKind.ALIAS_DECL);
+	AliasDecl* type_alias = type_node.as(AliasDecl);
+	test::eq(type_alias.alias_kind, AliasDeclKind.TYPE_ALIAS);
+	test::eq(type_alias.name_kind, TokenKind.TYPE_IDENT);
+	test::eq(type_alias.name.text, "IntList");
+	test::eq(type_alias.target.kind, NodeKind.TYPE_EXPR);
+	TypeExpr* type_target = type_alias.target.as(TypeExpr);
+	test::eq(type_target.type_kind, TypeExprKind.TYPE_GENERIC);
+	test::eq(type_target.generic.params.len, 1);
+	TypeExpr* type_base = type_target.generic.base.as(TypeExpr);
+	test::eq(type_base.type_kind, TypeExprKind.TYPE_IDENTIFIER);
+	test::eq(type_base.unresolved.name.text, "List");
+
+	AliasDecl* stack_node = mod.nodes[2].as(AliasDecl);
+	test::eq(stack_node.alias_kind, AliasDeclKind.TYPE_ALIAS);
+	GenericDecl* generic = stack_node.generics.as(GenericDecl);
+	test::eq(generic.params.len, 1);
+	TypeExpr* first_type = generic.params[0].as(TypeExpr);
+	test::eq(first_type.type_kind, TypeExprKind.TYPE_IDENTIFIER);
+	test::eq(first_type.unresolved.name.text, "Ty");
+	test::eq(stack_node.target.as(TypeExpr).type_kind, TypeExprKind.TYPE_GENERIC);
+
+	Node* module_node       = mod.nodes[3];
+	AliasDecl* module_alias = module_node.as(AliasDecl);
+	test::eq(module_alias.alias_kind, AliasDeclKind.MODULE_ALIAS);
+	test::eq(module_alias.name_kind, TokenKind.IDENT);
+	test::eq(module_alias.target.kind, NodeKind.PATH_EXPR);
+	PathExpr* module_path = module_alias.target.as(PathExpr);
+	test::eq(module_path.path.text, "my::collection");
+
+	Node* ident_node       = mod.nodes[4];
+	AliasDecl* ident_alias = ident_node.as(AliasDecl);
+	test::eq(ident_alias.alias_kind, AliasDeclKind.IDENT_ALIAS);
+	test::eq(ident_alias.name_kind, TokenKind.IDENT);
+
+	AliasDecl* attr_alias = mod.nodes[6].as(AliasDecl);
+	test::eq(attr_alias.alias_kind, AliasDeclKind.IDENT_ALIAS);
+	test::eq(attr_alias.name_kind, TokenKind.AT_IDENT);
+
+	AliasDecl* generic_target_alias = mod.nodes[7].as(AliasDecl);
+	test::eq(generic_target_alias.alias_kind, AliasDeclKind.IDENT_ALIAS);
+	GenericIdentExpr* generic_target_path = generic_target_alias.target.as(GenericIdentExpr);
+	test::eq(generic_target_path.exprs.len, 2);
+
+	AliasDecl* fn_ptr_alias = mod.nodes[8].as(AliasDecl);
+	test::eq(fn_ptr_alias.alias_kind, AliasDeclKind.TYPE_ALIAS);
+	test::eq(fn_ptr_alias.name.text, "ElementPredicate");
+	TypeExpr* fn_ptr_type = fn_ptr_alias.target.as(TypeExpr);
+	test::eq(fn_ptr_type.type_kind, TypeExprKind.TYPE_FUNCTION);
+	TypeExpr* fn_ret_type = fn_ptr_type.func.ret_type.as(TypeExpr);
+	test::eq(fn_ret_type.type_kind, TypeExprKind.TYPE_IDENTIFIER);
+	test::eq(fn_ret_type.unresolved.name.text, "bool");
+	test::eq(fn_ptr_type.func.params.len, 1);
+	VarDecl* fn_param = fn_ptr_type.func.params[0].as(VarDecl);
+	test::eq(fn_param.var_kind, VarDeclKind.VAR_PARAM);
+	test::eq(fn_param.name.text, "type");
+	TypeExpr* param_type = fn_param.type.as(TypeExpr);
+	test::eq(param_type.type_kind, TypeExprKind.TYPE_POINTER);
+	TypeExpr* param_base_type = param_type.modify.base.as(TypeExpr);
+	test::eq(param_base_type.unresolved.name.text, "Type");
+
+	Node* node            = mod.nodes[9];
+	AliasDecl* alias_decl = node.as(AliasDecl);
+	test::eq(alias_decl.alias_kind, AliasDeclKind.TYPE_ALIAS);
+	test::eq(alias_decl.generics, null);
+	test::eq(alias_decl.attributes.len, 2);
+	test::eq(parser_tests::@attr(alias_decl, 0).attribute_kind, AttributeKind.PRIVATE);
+	test::eq(parser_tests::@attr(alias_decl, 1).name.text, "@AliasAttr");
+	test::eq(node.flags.has_attributes, true);
+	test::eq(node.visibility, Visibility.PRIVATE);
+}
+
+fn void typedef_declarations_parse()
+{
+	String source_code = `module hello;
+		typedef MyId = int;
+		typedef MyId2 @constinit = int;
+		typedef Bcd @constinit = inline int;
+		typedef IntAlign2 = int @align(2);
+		typedef Float4 = float[<4>] @simd;
+		typedef EnumSet (Printable) = EnumSetType;
+		typedef Option<Type> = Type*;
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	test::eq(mod.nodes.len(), 8);
+
+	TypedefDecl* my_id = mod.nodes[1].as(TypedefDecl);
+	test::eq(my_id.name.text, "MyId");
+	test::eq(my_id.is_inline, false);
+	test::eq(my_id.attributes.len, 0);
+	TypeExpr* my_id_base = my_id.base_type.as(TypeExpr);
+	test::eq(my_id_base.type_kind, TypeExprKind.TYPE_IDENTIFIER);
+	test::eq(my_id_base.unresolved.name.text, "int");
+
+	TypedefDecl* my_id2 = mod.nodes[2].as(TypedefDecl);
+	test::eq(my_id2.name.text, "MyId2");
+	test::eq(my_id2.attributes.len, 1);
+
+	TypedefDecl* bcd = mod.nodes[3].as(TypedefDecl);
+	test::eq(bcd.name.text, "Bcd");
+	test::eq(bcd.is_inline, true);
+	test::eq(bcd.attributes.len, 1);
+
+	TypedefDecl* int_align = mod.nodes[4].as(TypedefDecl);
+	test::eq(int_align.name.text, "IntAlign2");
+	test::eq(int_align.attributes.len, 1);
+
+	TypedefDecl* float4 = mod.nodes[5].as(TypedefDecl);
+	test::eq(float4.name.text, "Float4");
+	test::eq(float4.attributes.len, 1);
+	TypeExpr* float4_base = float4.base_type.as(TypeExpr);
+	test::eq(float4_base.type_kind, TypeExprKind.TYPE_VECTOR);
+	test::eq(float4_base.array.len_expr.kind, NodeKind.LITERAL_EXPR);
+
+	TypedefDecl* enum_set = mod.nodes[6].as(TypedefDecl);
+	test::eq(enum_set.name.text, "EnumSet");
+	test::eq(enum_set.interfaces.len, 1);
+	TypeExpr* interface_type = enum_set.interfaces[0].as(TypeExpr);
+	test::eq(interface_type.unresolved.name.text, "Printable");
+	TypeExpr* enum_set_base = enum_set.base_type.as(TypeExpr);
+	test::eq(enum_set_base.unresolved.name.text, "EnumSetType");
+
+	TypedefDecl* option = mod.nodes[7].as(TypedefDecl);
+	test::eq(option.name.text, "Option");
+	GenericDecl* option_generics = option.generics.as(GenericDecl);
+	test::eq(option_generics.params.len, 1);
+	TypeExpr* option_generic_param = option_generics.params[0].as(TypeExpr);
+	test::eq(option_generic_param.unresolved.name.text, "Type");
+	TypeExpr* option_base = option.base_type.as(TypeExpr);
+	test::eq(option_base.type_kind, TypeExprKind.TYPE_POINTER);
+	TypeExpr* option_inner = option_base.modify.base.as(TypeExpr);
+	test::eq(option_inner.unresolved.name.text, "Type");
+}
+
+fn void function_pointer_types_are_alias_only()
+{
+	String source_code = `module hello;
+		alias CallbackDefault = fn void(int value = 0);
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	AliasDecl* alias_decl  = mod.nodes[1].as(AliasDecl);
+	TypeExpr* alias_target = alias_decl.target.as(TypeExpr);
+	test::eq(alias_target.type_kind, TypeExprKind.TYPE_FUNCTION);
+	test::eq(alias_target.func.params.len, 1);
+	VarDecl* alias_param = alias_target.func.params[0].as(VarDecl);
+	test::eq(alias_param.init_expr.kind, NodeKind.LITERAL_EXPR);
+}
+
+fn void global_var_const()
+{
+	String source_code = `
+		module hello;
+
+		const int[4]* FOO = null;
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	Node* target_node = mod.nodes[1];
+	VarDecl* decl     = target_node.as(VarDecl);
+	test::eq(decl.var_kind, VarDeclKind.VAR_GLOBAL);
+	test::eq(decl.type.kind, NodeKind.TYPE_EXPR);
+	TypeExpr* type_data = decl.type.as(TypeExpr);
+}
+
+fn void global_var_multi_decl()
+{
+	String source_code = `
+		module hello;
+
+		int foo, bar, z;
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	Node* target_node = mod.nodes[1];
+	VarDecl* decl     = target_node.as(VarDecl);
+	test::eq(decl.var_kind, VarDeclKind.VAR_GLOBAL);
+	test::eq(decl.type.kind, NodeKind.TYPE_EXPR);
+	test::eq(decl.name.text, "foo");
+	test::eq(decl.init_expr, null);
+	test::eq(decl.type.as(TypeExpr).unresolved.name.text, "int");
+
+	test::ne(decl.next, null);
+	VarDecl* decl_2 = decl.next.as(VarDecl);
+	test::eq(decl_2.name.text, "bar");
+	test::eq(decl_2.init_expr, null);
+	test::eq(decl_2.type.as(TypeExpr).unresolved.name.text, "int");
+
+	test::ne(decl_2.next, null);
+	VarDecl* decl_3 = decl_2.next.as(VarDecl);
+	test::eq(decl_3.name.text, "z");
+	test::eq(decl_3.next, null);
+	test::eq(decl_3.init_expr, null);
+	test::eq(decl_3.type.as(TypeExpr).unresolved.name.text, "int");
+}
+
+fn void global_var()
+{
+	String source_code = `
+		module hello;
+
+		int[4] foo;
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	Node* target_node = mod.nodes[1];
+	VarDecl* decl     = target_node.as(VarDecl);
+	test::eq(decl.var_kind, VarDeclKind.VAR_GLOBAL);
+	test::eq(decl.type.kind, NodeKind.TYPE_EXPR);
+	TypeExpr* type_data = decl.type.as(TypeExpr);
+}
+
+fn void global_var_tlocal()
+{
+	String source_code = `
+		module hello;
+
+		tlocal int foo = 1;
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	Node* target_node = mod.nodes[1];
+	VarDecl* decl     = target_node.as(VarDecl);
+	test::eq(decl.var_kind, VarDeclKind.VAR_GLOBAL);
+	test::eq(decl.type.kind, NodeKind.TYPE_EXPR);
+	TypeExpr* type_data = decl.type.as(TypeExpr);
+}
+
+fn void global_var_extern()
+{
+	String source_code = `
+		module hello;
+
+		extern int foo;
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	Node* target_node = mod.nodes[1];
+	VarDecl* decl     = target_node.as(VarDecl);
+	test::eq(decl.var_kind, VarDeclKind.VAR_GLOBAL);
+	test::eq(decl.type.kind, NodeKind.TYPE_EXPR);
+	TypeExpr* type_data = decl.type.as(TypeExpr);
+}
+
+fn void expand()
+{
+	String source_code = `
+		module hello;
+
+		$expand("fn void foo();");
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	Node* target_node    = mod.nodes[1];
+	CtExpandDecl* decl   = target_node.as(CtExpandDecl);
+	LiteralExpr* literal = decl.expr.as(LiteralExpr);
+	test::eq(literal.string, "fn void foo();");
+}
+
+fn void struct_decl()
+{
+	String source_code = `
+		module hello;
+
+		<*
+		*>
+		struct Foo (Printable) <Type> @local
+		{
+			<*
+				Comment
+			*>
+			int a;
+			inline Bar b;
+
+			struct sub
+			{
+				int sub_a;
+
+				union sub_union
+				{
+					int faf;
+				}
+			}
+
+			struct
+			{
+				int a;
+			}
+
+			union
+			{
+				int a;
+			}
+
+			bitstruct bits
+			{
+				bool a;
+				bool b;
+				bool c;
+			}
+		}
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	Node* target_node = mod.nodes[1];
+	StructDecl* head  = target_node.as(StructDecl);
+	test::ne(head.next, null);
+	test::eq(parser_tests::count_kind(mod, MODULE_DECL), 1);
+	test::eq(parser_tests::count_kind(mod, STRUCT_DECL), 1);
+}
+
+
+fn void bitstruct_decl()
+{
+	String source_code = `
+		module hello;
+
+		<*
+		*>
+		bitstruct Foo : char[4] @bigendian
+		{
+			ushort v : 0..15;
+		}
+
+		bitstruct Bar : short
+		{
+			int a : 0..2; // Exact bit ranges, bits 0-2
+			uint b : 3..6;
+			MyEnum c : 7..13;
+		}
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	Node* target_node = mod.nodes[2];
+	StructDecl* head  = target_node.as(StructDecl);
+	test::eq(parser_tests::count_kind(mod, MODULE_DECL), 1);
+	test::eq(parser_tests::count_kind(mod, STRUCT_DECL), 2);
+}
+
+fn void union_decl()
+{
+	String source_code = `
+		module hello;
+
+		union Foo
+		{
+			int a;
+			Foo b;
+
+			struct bar
+			{
+				int x;
+				int y;
+			}
+
+			struct baz
+			{
+				int z;
+				int w;
+			}
+		}
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	Node* target_node = mod.nodes[1];
+
+	test::eq(parser_tests::count_kind(mod, MODULE_DECL), 1);
+	test::eq(parser_tests::count_kind(mod, STRUCT_DECL), 1);
+}
+
+fn void faultdef_decl()
+{
+	String source_code = `
+		module hello;
+
+		<*
+		 My Faultdef
+		*>
+		faultdef ERROR, FOO, BAR;
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	Node* target_node = mod.nodes[1];
+
+	test::eq(parser_tests::count_kind(mod, MODULE_DECL), 1);
+	test::eq(parser_tests::count_kind(mod, FAULTDEF_DECL), 1);
+}
+
+
+fn void interface_decl()
+{
+	String source_code = `
+		module hello;
+
+		interface MyInterface : Foo, Bar @local
+		{
+			fn void foo() @optional;
+			fn bool bar(int a);
+		}
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	Node* target_node = mod.nodes[1];
+
+	test::eq(parser_tests::count_kind(mod, MODULE_DECL), 1);
+	test::eq(parser_tests::count_kind(mod, INTERFACE_DECL), 1);
+}
+
+fn void attrdef_decl()
+{
+	String source_code = `
+		module hello;
+
+		attrdef @MyAttribute       = @noreturn, @inline;
+		attrdef @MyCname(x)        = @cname(x);
+		attrdef @TagFoo(value)     = @tag("foo", value);
+		attrdef @MyAttributeEmpty;
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	Node* target_node = mod.nodes[1];
+
+	test::eq(parser_tests::count_kind(mod, MODULE_DECL), 1);
+	test::eq(parser_tests::count_kind(mod, ATTRDEF_DECL), 4);
+}
+
+fn void ct_assert_decl()
+{
+	String source_code = `
+		module hello;
+
+		$assert 2 == 2;
+		$assert @bar() == MY_CONST;
+		$assert 98 == -2 : "no no";
+		$assert 98 == -2 : @sprintf("no %s", @bar());
+	`;
+
+	AnalyzerContext* context = context::new(tmem);
+	bool success = context::process(context, source_code, "test");
+	test::eq(success, true);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	Node* target_node = mod.nodes[1];
+
+	test::eq(parser_tests::count_kind(mod, MODULE_DECL), 1);
+	test::eq(parser_tests::count_kind(mod, CT_ASSERT_DECL), 4);
+}
+
+fn void macro_body_params()
+{
+	String source_code = `
+		module hello;
+		macro @each(int a; @body(int x)) {}
+		macro @twice(int a; @body) {}
+		macro @plain(int a) {}
+	`;
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+	test::eq(parser_tests::error_diag_count, 0);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	MacroDecl* each = mod.nodes[1].as(MacroDecl);
+	test::eq(each.params.len, 1);
+	test::ne(each.body_params, null);
+	BodyParamDecl* body_params = each.body_params.as(BodyParamDecl);
+	test::eq(body_params.params.len, 1);
+
+	MacroDecl* twice = mod.nodes[2].as(MacroDecl);
+	test::ne(twice.body_params, null);
+	test::eq(twice.body_params.as(BodyParamDecl).params.len, 0);
+
+	MacroDecl* plain = mod.nodes[3].as(MacroDecl);
+	test::eq(plain.body_params, null);
+}
+
+<*
+ A declaration's own modifiers must not reach the statements of a lambda
+ written in its initializer: 'var f = fn ...' used to leak 'var' inside, where
+ it ate the name of a 'const' and the type of a 'static'.
+*>
+fn void decl_modifiers_do_not_leak_into_a_lambda_body()
+{
+	String source_code = `
+		module hello;
+
+		fn void main()
+		{
+			var f = fn void()
+			{
+				const A = "x";
+				static int g = 1;
+			};
+		}
+	`;
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+	test::eq(parser_tests::error_diag_count, 0);
+
+	Module* mod = context.modules.get("hello")!!;
+	FnDecl* main_fn = mod.nodes[1].as(FnDecl);
+	VarDecl* f = main_fn.body.as(CompoundStmt).statements[0].as(VarDecl);
+	LambdaExpr* lambda = f.init_expr.as(LambdaExpr);
+	NodeArray body = lambda.body.as(CompoundStmt).statements;
+
+	VarDecl* a = body[0].as(VarDecl);
+	test::eq(a.name.text, "A");
+	test::eq(a.var_flags.is_const, true);
+
+	VarDecl* g = body[1].as(VarDecl);
+	test::eq(g.name.text, "g");
+	test::eq(g.var_flags.is_static, true);
+	test::ne(g.type, null); // 'var' used to swallow the 'int'
+}
+
+<*
+ 'untypedlist' is a compile time type: only a '$name' variable can hold one.
+ A global, a local, or one name of a multi-declaration each get their own
+ error, while the compile time ones parse clean.
+*>
+fn void untypedlist_variables_must_be_comptime()
+{
+	String source_code = `
+		module hello;
+
+		untypedlist global_list = { 1, 2 };
+
+		fn void main()
+		{
+			untypedlist local_list = { 1, 2 };
+			untypedlist a, $b, c;
+		}
+	`;
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+
+	// global_list, local_list, a and c - '$b' is fine.
+	test::eq(parser_tests::error_diag_count, 4);
+}
+
+fn void comptime_untypedlist_variables_are_accepted()
+{
+	String source_code = `
+		module hello;
+
+		fn void main()
+		{
+			untypedlist $list = { 1, 2 };
+			untypedlist* ptr;
+		}
+	`;
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+	test::eq(parser_tests::error_diag_count, 0);
+
+	Module* mod = context.modules.get("hello")!!;
+	FnDecl* main_fn = mod.nodes[1].as(FnDecl);
+	VarDecl* list = main_fn.body.as(CompoundStmt).statements[0].as(VarDecl);
+
+	test::eq(list.var_flags.is_comptime, true);
+}
+
+<*
+ A member is never a compile time binding, and a parameter is bound at the call
+ site, so 'untypedlist' is invalid in both places - even spelled '$name'.
+*>
+fn void untypedlist_is_never_a_member_or_a_parameter()
+{
+	String source_code = `
+		module hello;
+
+		struct Data { untypedlist a; untypedlist $b; int c; }
+		union Uni { untypedlist u; }
+		bitstruct Bits : uint { untypedlist f : 0..3; }
+
+		fn void takes(untypedlist p) {}
+		macro @m(untypedlist $p) {}
+	`;
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+
+	// S.a, S.$b, U.u, B.f, 'takes' p and '@m' $p.
+	test::eq(parser_tests::error_diag_count, 6);
+}
+
+<*
+ A '@body(...)' parameter is bound inside the macro, where an untyped list is
+ still a compile time value, so 'untypedlist' is allowed there - unlike a
+ regular macro parameter.
+*>
+fn void untypedlist_is_allowed_as_a_body_param()
+{
+	String source_code = `
+		module hello;
+
+		macro @each(; @body(untypedlist $p)) {}
+		macro @two(int a; @body(untypedlist $p, untypedlist q)) {}
+	`;
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+	test::eq(parser_tests::error_diag_count, 0);
+
+	Module* mod = context.modules.get("hello")!!;
+	MacroDecl* each = mod.nodes[1].as(MacroDecl);
+	test::eq(each.body_params.as(BodyParamDecl).params.len, 1);
+}
+
+<*
+ 'fn ... => @macro() { ... }' wraps the call in a synthetic body. That body used
+ to keep the range of the first token of the call, since the branch that closes
+ the range only ran for the ';' terminated form.
+*>
+fn void short_body_with_a_macro_call_spans_the_whole_body()
+{
+	String source_code = `
+		module hello;
+
+		fn void x() => @pool()
+		{
+			int a = 1;
+		}
+	`;
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+	test::eq(parser_tests::error_diag_count, 0);
+
+	Module* mod = context.modules.get("hello")!!;
+	FnDecl* func = mod.nodes[1].as(FnDecl);
+	CompoundStmt* body = func.body.as(CompoundStmt);
+	Node* stmt = body.statements[0];
+
+	// The body reaches the closing brace, which is where the function ends.
+	test::eq(body.range.end.line, func.range.end.line);
+	test::eq(body.range.end.column, func.range.end.column);
+
+	// And it is no shorter than the statement it wraps.
+	test::eq(body.range.end.line, stmt.range.end.line);
+	test::eq(body.range.end.column, stmt.range.end.column);
+}
+
+<*
+ The ';' terminated form covers the statement it wraps, stopping before the
+ terminator, which belongs to the declaration.
+*>
+fn void short_body_with_an_expression_ends_at_its_statement()
+{
+	String source_code = `
+		module hello;
+
+		fn int y() => 1 + 2;
+	`;
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+	test::eq(parser_tests::error_diag_count, 0);
+
+	Module* mod = context.modules.get("hello")!!;
+	FnDecl* func = mod.nodes[1].as(FnDecl);
+	CompoundStmt* body = func.body.as(CompoundStmt);
+	Node* stmt = body.statements[0];
+
+	test::eq(body.range.end.line, stmt.range.end.line);
+	test::eq(body.range.end.column, stmt.range.end.column);
+
+	// The ';' is outside the body but inside the function.
+	test::eq(func.range.end.column, body.range.end.column);
+}
+
+<*
+ A binary expression covers both operands: its range used to start at the
+ operator token, since that is where the led parser stands when it builds the
+ node.
+*>
+fn void binary_expr_starts_at_its_left_operand()
+{
+	String source_code = `
+		module hello;
+
+		fn void f(int a, int b, int c)
+		{
+			int r = a + b * c;
+		}
+	`;
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+	test::eq(parser_tests::error_diag_count, 0);
+
+	Module* mod = context.modules.get("hello")!!;
+	FnDecl* func = mod.nodes[1].as(FnDecl);
+	VarDecl* decl = func.body.as(CompoundStmt).statements[0].as(VarDecl);
+
+	BinaryExpr* add = decl.init_expr.as(BinaryExpr);
+	Node* left = add.left;
+	BinaryExpr* mul = add.right.as(BinaryExpr);
+
+	// 'a + b * c' starts where 'a' does and ends where 'c' does.
+	test::eq(add.range.start.line, left.range.start.line);
+	test::eq(add.range.start.column, left.range.start.column);
+	test::eq(add.range.end.column, mul.range.end.column);
+
+	// The nested 'b * c' starts at 'b', not at '*'.
+	test::eq(mul.range.start.column, mul.left.range.start.column);
+}
+
+<*
+ A postfix operator and a ternary both stand on their operator token when the
+ node is built, so their ranges used to start there instead of at the operand
+ in front of them.
+*>
+fn void postfix_and_ternary_start_at_their_left_operand()
+{
+	String source_code = `
+		module hello;
+
+		fn void f(int a, int b, int c)
+		{
+			int p = a++;
+			int s = a > b ? b : c;
+		}
+	`;
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+	test::eq(parser_tests::error_diag_count, 0);
+
+	Module* mod = context.modules.get("hello")!!;
+	NodeArray body = mod.nodes[1].as(FnDecl).body.as(CompoundStmt).statements;
+
+	PostUnaryExpr* post = body[0].as(VarDecl).init_expr.as(PostUnaryExpr);
+	test::eq(post.range.start.column, post.expr.range.start.column);
+	test::eq(post.range.end.column, post.expr.range.end.column + 2); // '++'
+
+	TernaryExpr* ternary = body[1].as(VarDecl).init_expr.as(TernaryExpr);
+	test::eq(ternary.range.start.line, ternary.cond.range.start.line);
+	test::eq(ternary.range.start.column, ternary.cond.range.start.column);
+	test::eq(ternary.range.end.column, ternary.else_expr.range.end.column);
+}
+
+<*
+ An empty buffer used to abort on a '@require buffer.len > 0'. An editor hands
+ one over whenever a file is created or emptied, and the keystrokes that follow
+ have to keep working on the same context.
+*>
+fn void an_empty_buffer_parses_to_an_empty_ast()
+{
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+
+	context::process(context, "", "test");
+	test::eq(parser_tests::error_diag_count, 0);
+
+	// Typing the first characters of a declaration into that same file only
+	// reports diagnostics - it does not take the analyzer down.
+	context::process(context, "f", "test");
+	context::process(context, "fn", "test");
+	context::process(context, "fn void f() {}", "test");
+
+	parser_tests::start_counting_diags();
+	context::process(context, "module hello;", "test");
+	test::eq(parser_tests::error_diag_count, 0);
+	test::ne(context.modules.get("hello")!!, null);
+}
+
+<*
+ 'excuse' names faults like 'faultdef' does, either inline up to a ';' or
+ inside a block, which closes on its '}' and takes no ';' after it.
+*>
+fn void excuse_decl_inline_and_block()
+{
+	String source_code = `
+		module hello;
+
+		excuse SINGLE;
+		excuse FIRST, SECOND;
+		excuse { IN_BLOCK, ALSO_IN_BLOCK }
+		excuse { TRAILING_COMMA, }
+		excuse { ONE }
+		excuse LAST;
+	`;
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+	test::eq(parser_tests::error_diag_count, 0);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	test::eq(parser_tests::count_kind(mod, FAULTDEF_DECL), 6);
+
+	// Every form collects its names, whichever way it is terminated.
+	test::eq(mod.nodes[1].as(FaultdefDecl).faults.len, 1);
+	test::eq(mod.nodes[2].as(FaultdefDecl).faults.len, 2);
+	test::eq(mod.nodes[3].as(FaultdefDecl).faults.len, 2);
+	test::eq(mod.nodes[4].as(FaultdefDecl).faults.len, 1);
+	test::eq(mod.nodes[5].as(FaultdefDecl).faults.len, 1);
+	test::eq(mod.nodes[6].as(FaultdefDecl).faults.len, 1);
+
+	FaultdefDecl* block = mod.nodes[3].as(FaultdefDecl);
+	test::eq(block.faults[0].as(FaultDecl).name.text, "IN_BLOCK");
+	test::eq(block.faults[1].as(FaultDecl).name.text, "ALSO_IN_BLOCK");
+}
+
+<*
+ A block spans to its '}': the declaration that follows it is a separate node,
+ not something the block swallowed.
+*>
+fn void excuse_block_range_ends_at_the_brace()
+{
+	String source_code = "module hello;\nexcuse { FOO, BAR }\nfn void after() {}\n";
+
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+	test::eq(parser_tests::error_diag_count, 0);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	FaultdefDecl* block = mod.nodes[1].as(FaultdefDecl);
+	test::eq(block.range.start.line, 1);
+	test::eq(block.range.end.line, 1);
+	test::eq(block.range.end.column, 19); // just past the '}', which ends the line
+
+	// The function after the block is still parsed as its own declaration.
+	test::eq(mod.nodes[2].kind, NodeKind.FN_DECL);
+	test::eq(mod.nodes[2].as(FnDecl).name.text, "after");
+}
+
+<*
+ An unterminated block is reported on the '}' that never came.
+*>
+fn void unterminated_excuse_block_is_reported()
+{
+	String source_code = "module hello;\nexcuse { FOO\n";
+
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+
+	test::eq(parser_tests::error_diag_count, 1);
+}
+
+<*
+ A stray ';' at file scope used to stop the parse: the token started no
+ declaration, nothing consumed it, and the loop gave up on the rest of the
+ file. It is reported and skipped now, so what follows still parses.
+*>
+fn void a_stray_semicolon_does_not_end_the_parse()
+{
+	String source_code = "module hello;\nexcuse { FOO };\nfn void after() {}\n";
+
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+
+	// Only the ';' is wrong, and it is named as such.
+	test::eq(parser_tests::error_diag_count, 1);
+	test::eq(parser_tests::last_error_message, "';' wasn't expected here, try removing it");
+
+	Module* mod = context.modules.get("hello")!!;
+
+	test::eq(parser_tests::count_kind(mod, FAULTDEF_DECL), 1);
+	test::eq(parser_tests::count_kind(mod, FN_DECL), 1);
+	test::eq(parser_tests::count_kind(mod, ERROR), 1);
+}
+
+<*
+ The same holds for a run of them, and for junk that starts no declaration at
+ all: every one is reported, and the declaration after them survives.
+*>
+fn void junk_at_file_scope_is_skipped_one_token_at_a_time()
+{
+	String source_code = "module hello;\n;\n;\nfn void after() {}\n";
+
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+
+	test::eq(parser_tests::error_diag_count, 2);
+
+	Module* mod = context.modules.get("hello")!!;
+
+	test::eq(parser_tests::count_kind(mod, FN_DECL), 1);
+	test::eq(mod.nodes[^1].as(FnDecl).name.text, "after");
+}
+
+<*
+ A function type is only written as the target of a type alias: 'fn', a return
+ type, a parameter list and attributes, with no name. c3c accepts all of these.
+ Attributes before the '=' belong to the alias, those after the ')' to the type.
+*>
+fn void alias_fn_type_expression()
+{
+	String source_code = `module hello;
+alias Callback = fn void();
+alias Unary = fn int(int);
+alias MaybeInt = fn int?(String s);
+alias Printf = fn void(String fmt, args...);
+alias Defaulted = fn void(int x = 3);
+alias Nested = fn void(Callback cb);
+alias Old = fn int(int a, int b) @deprecated;
+alias Priv @private = fn void();`;
+
+	parser_tests::start_counting_diags();
+	defer parser_tests::stop_counting_diags();
+
+	AnalyzerContext* context = context::new(tmem);
+	context::process(context, source_code, "test");
+
+	test::eq(parser_tests::error_diag_count, 0);
+
+	Module* mod = context.modules.get("hello")!!;
+	test::eq(mod.nodes.len(), 9);
+	test::eq(parser_tests::count_kind(mod, ALIAS_DECL), 8);
+
+	AliasDecl* callback_alias = mod.nodes[1].as(AliasDecl);
+	test::eq(callback_alias.alias_kind, AliasDeclKind.TYPE_ALIAS);
+	test::eq(callback_alias.target.kind, NodeKind.TYPE_EXPR);
+	TypeExpr* callback = callback_alias.target.as(TypeExpr);
+	test::eq(callback.type_kind, TypeExprKind.TYPE_FUNCTION);
+	test::eq(callback.func.ret_type.as(TypeExpr).unresolved.name.text, "void");
+	test::eq(callback.func.params.len, 0);
+	test::eq(callback.func.attributes.len, 0);
+	// From 'fn' to ')', the ';' belongs to the alias.
+	test::eq(callback.range.start.line, 1);
+	test::eq(callback.range.start.column, 17);
+	test::eq(callback.range.end.column, 26);
+	test::eq(callback_alias.range.end.column, 27);
+
+	TypeExpr* unary = mod.nodes[2].as(AliasDecl).target.as(TypeExpr);
+	test::eq(unary.type_kind, TypeExprKind.TYPE_FUNCTION);
+	test::eq(unary.func.params.len, 1);
+	VarDecl* unnamed = unary.func.params[0].as(VarDecl);
+	test::eq(unnamed.var_kind, VarDeclKind.VAR_PARAM);
+	test::eq(unnamed.name, null);
+	test::eq(unnamed.type.as(TypeExpr).unresolved.name.text, "int");
+
+	TypeExpr* maybe_int = mod.nodes[3].as(AliasDecl).target.as(TypeExpr);
+	TypeExpr* optional_ret = maybe_int.func.ret_type.as(TypeExpr);
+	test::eq(optional_ret.optional, true);
+	test::eq(optional_ret.unresolved.name.text, "int");
+	test::eq(maybe_int.func.params[0].as(VarDecl).name.text, "s");
+
+	TypeExpr* printf = mod.nodes[4].as(AliasDecl).target.as(TypeExpr);
+	test::eq(printf.func.params.len, 2);
+	VarDecl* fmt = printf.func.params[0].as(VarDecl);
+	test::eq(fmt.name.text, "fmt");
+	test::eq(fmt.var_flags.is_variadic, false);
+	VarDecl* args = printf.func.params[1].as(VarDecl);
+	test::eq(args.name.text, "args");
+	test::eq(args.var_flags.is_variadic, true);
+
+	VarDecl* defaulted = mod.nodes[5].as(AliasDecl).target.as(TypeExpr).func.params[0].as(VarDecl);
+	test::eq(defaulted.name.text, "x");
+	test::ne(defaulted.init_expr, null);
+
+	VarDecl* nested = mod.nodes[6].as(AliasDecl).target.as(TypeExpr).func.params[0].as(VarDecl);
+	test::eq(nested.type.as(TypeExpr).unresolved.name.text, "Callback");
+
+	AliasDecl* old_alias = mod.nodes[7].as(AliasDecl);
+	TypeExpr* old = old_alias.target.as(TypeExpr);
+	test::eq(old.func.params.len, 2);
+	test::eq(old.func.attributes.len, 1);
+	test::eq(old_alias.attributes.len, 0);
+	// The type's range takes in its attributes.
+	test::eq(old.range.start.column, 12);
+	test::eq(old.range.end.column, 44);
+
+	AliasDecl* priv_alias = mod.nodes[8].as(AliasDecl);
+	test::eq(priv_alias.attributes.len, 1);
+	test::eq(priv_alias.target.as(TypeExpr).type_kind, TypeExprKind.TYPE_FUNCTION);
+	test::eq(priv_alias.target.as(TypeExpr).func.attributes.len, 0);
+}

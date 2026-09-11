@@ -1,0 +1,111 @@
+module analyzer::sema::lookup @feat(SEMA);
+
+import analyzer::core;
+import analyzer::core::arch;
+
+fn Lookup* new(AnalyzerContext* context, Allocator alloc)
+{
+	Lookup* lookup = alloc::new(alloc, Lookup);
+
+	lookup.types.init(alloc);
+	lookup.alloc = alloc;
+	lookup.target = context.target;
+
+	init_builtin_types(lookup);
+
+	return lookup;
+}
+
+<*
+ Release a lookup and every Type it owns.
+
+ The builtins from init_builtin_types are allocated one at a time, so
+ freeing the map alone would strand all of them. The map owns its keys.
+*>
+fn void free(Lookup* lookup)
+{
+	if (!lookup) return;
+
+	lookup.types.@each(; String name, Type* type)
+	{
+		alloc::free(lookup.alloc, type);
+	};
+	lookup.types.free();
+
+	alloc::free(lookup.alloc, lookup);
+}
+
+fn void register_type(Lookup* lookup, Allocator alloc, String name, Node* node)
+{
+	Type* type = alloc::new(alloc, Type);
+
+	type.name = name;
+	type.data.node = node;
+	type.status = UNRESOLVED;
+
+	lookup.types.set(name, type);
+}
+
+fn void new_builtin(Lookup* lookup, String name,
+	TypeKind kind, BitSizes bits, char bytes)
+{
+	Type* type = alloc::new(lookup.alloc, Type);
+	type.name = name;
+	type.kind = kind;
+	type.status = RESOLVED;
+
+	type.data.builtin.bitsize = bits.ordinal;
+	type.data.builtin.bytesize = bytes;
+
+	AlignData align;
+	switch (kind)
+	{
+		case F16:
+		case F32:
+		case F64:
+		case F128:
+			align = lookup.target.layout.floats[bits.ordinal];
+		default:
+			align = lookup.target.layout.integers[bits.ordinal];
+	}
+
+	type.data.builtin.abi_alignment = (char)align.align;
+	type.data.builtin.pref_alignment = (char)align.pref_align;
+
+	lookup.types.set(name, type);
+}
+
+fn void init_builtin_types(Lookup* lookup)
+{
+	char psize = arch::ptr_size(lookup.target.arch);
+	BitSizes pbits = arch::is_64bit(lookup.target.arch) ? BITS64 : BITS32;
+
+	new_builtin(lookup, "untypedlist", UNTYPEDLIST, BIT1, 1);
+
+	new_builtin(lookup, "void", VOID, BIT1, 1);
+	new_builtin(lookup, "bool", BOOL, BITS8, 1);
+
+	new_builtin(lookup, "ichar", I8, BITS8, 1);
+	new_builtin(lookup, "char", U8, BITS8, 1);
+
+	new_builtin(lookup, "short", I16, BITS16, 2);
+	new_builtin(lookup, "ushort", U16, BITS16, 2);
+
+	new_builtin(lookup, "int", I32, BITS32, 4);
+	new_builtin(lookup, "uint", U32, BITS32, 4);
+
+	new_builtin(lookup, "long", I64, BITS64, 8);
+	new_builtin(lookup, "ulong", U64, BITS64, 8);
+
+	new_builtin(lookup, "int128", I128, BITS128, 16);
+	new_builtin(lookup, "uint128", U128, BITS128, 16);
+
+	new_builtin(lookup, "float", F32, BITS32, 4);
+	new_builtin(lookup, "double", F64, BITS64, 4);
+
+	new_builtin(lookup, "sz", SZ, pbits, psize);
+	new_builtin(lookup, "usz", USZ, pbits, psize);
+
+	new_builtin(lookup, "iptr", IPTR, pbits, psize);
+	new_builtin(lookup, "uptr", UPTR, pbits, psize);
+}
