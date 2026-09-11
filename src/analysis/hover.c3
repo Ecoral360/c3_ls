@@ -91,6 +91,8 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 		if (signature.len == 0) signature = project.session.node_signature_text(origin.node, origin.owner);
 		if (signature.len == 0) continue;
 
+		signature = string::tformat("```c3\n%s\n```", signature);
+
 		// The signature is the part that is always there. A doc comment
 		// gets appended when the declaration has one; requiring one meant
 		// hovering anything undocumented - most methods included - showed
@@ -98,7 +100,7 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 		if (try ContractDecl* contract = cursor::contract(origin.node)) {
 			String documented = contract_markdown(&project.session, contract, origin.owner);
 			if (documented.len > 0) {
-				output.push(string::tformat("```c3\n%s\n```\n\n%s", signature, documented));
+				output.push(string::tformat("%s\n\n%s", signature, documented));
 				continue;
 			}
 		}
