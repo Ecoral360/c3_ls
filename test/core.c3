@@ -981,3 +981,31 @@ fn void session_indexes_a_module_for_an_empty_file() => @pool() {
 
 	test::@check(session.ctx.modules.has_key("typing.c3"), "a half typed file registered no module");
 }
+
+<*
+ `module ` on its own is a module declaration that names nothing.
+
+ The parser puts an error node where the path goes, and every pass that
+ switched module on a MODULE_DECL read that node as a path without
+ looking - so typing the space after `module` took the server down.
+*>
+fn void session_survives_a_module_declaration_with_no_path() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, "/virtual/nameless.c3", "module ");
+
+	// Nothing named the module, so it stays the one named after the file.
+	test::@check(session.ctx.modules.has_key("nameless.c3"), "a nameless module line registered no module");
+
+	// The same line above a body: the declarations under it still have to
+	// land somewhere, and that somewhere is the module named after the file.
+	test_support::load(&session, "/virtual/half.c3", "module \n\nfn void go()\n{\n}\n");
+
+	test::@check(session.ctx.modules.has_key("half.c3"), "a nameless module line above a body registered no module");
+	test::@check(
+		test_support::find_top_level(&session, "/virtual/half.c3", "go") != null,
+		"the function under a nameless module line was lost"
+	);
+}
