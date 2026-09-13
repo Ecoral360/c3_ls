@@ -425,7 +425,11 @@ fn void provide_keywords_filters_by_scope() {
 	test::ne(items.len(), body_items.len());
 }
 
-fn void provide_keywords_filters_by_prefix() {
+<*
+ What is typed narrows the keywords, fuzzily like everything else: `st`
+ keeps `struct`, and `bitstruct` with it.
+*>
+fn void provide_keywords_filters_by_what_is_typed() {
 	Context ctx = {
 		.scope = CompletionContextKind.GLOBAL,
 		.access = LspAccessKind.NONE,
@@ -439,8 +443,16 @@ fn void provide_keywords_filters_by_prefix() {
 
 	test::@check(!items.is_empty());
 	foreach (CompletionItem item : items) {
-		test::@check(item.label.starts_with("st"), "'%s' does not match the prefix", item.label);
+		test::@check(name_matches_fuzzy(item.label, "st"), "'%s' does not match what was typed", item.label);
 	}
+
+	List{String} labels;
+	labels.tinit();
+	foreach (CompletionItem item : items) labels.push(item.label);
+
+	test::@check(test_support::has(labels.to_tarray(), "struct"), "the keyword the prefix spells was dropped");
+	test::@check(test_support::has(labels.to_tarray(), "bitstruct"), "a fuzzy match was dropped");
+	test::@check(!test_support::has(labels.to_tarray(), "import"), "a keyword that matches nothing typed was kept");
 }
 
 fn void provide_keywords_stays_out_of_member_access() {
@@ -2116,9 +2128,15 @@ fn void member_access_follows_the_receiver_further() => @pool() {
 	test::eq(nested.len, 1);
 	test::eq(nested[0], "depth");
 
+	// Fuzzy, not a prefix: `wi` reaches `width` and the `twice` macro
+	// alike, since both spell w then i.
 	String[] narrowed = test_support::member_labels_of(&session, RECEIVER_SRC, "self.wi");
-	test::eq(narrowed.len, 1);
-	test::eq(narrowed[0], "width");
+	test::eq(narrowed.len, 2);
+	test::@check(test_support::has(narrowed, "width"), "the field the prefix spells was dropped: %s", narrowed);
+	test::@check(test_support::has(narrowed, "twice"), "a fuzzy match was dropped: %s", narrowed);
+
+	// And what it cannot spell stays out.
+	test::eq(test_support::member_labels_of(&session, RECEIVER_SRC, "self.zz").len, 0);
 }
 
 <*

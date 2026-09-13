@@ -221,7 +221,7 @@ fn void provide_named_args(Context* ctx, List{CompletionItem}* items) {
 		if (!param.name || param.name.text.len == 0) continue;
 
 		String name = param.name.text;
-		if (ctx.prefix.len > 0 && !name_matches_fuzzy(name, ctx.prefix)) continue;
+		if (!matches_typed(ctx, name)) continue;
 		if (argument_already_named(ctx, site.open, name)) continue;
 
 		String type_name = param.type ? (cursor::spelling(param.type, ctx.allocator) ?? "") : "";

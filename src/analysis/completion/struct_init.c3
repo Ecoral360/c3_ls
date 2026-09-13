@@ -230,7 +230,7 @@ fn bool provide_struct_init(Context* ctx, List{CompletionItem}* items) {
 		if (!field.name || field.name.text.len == 0) continue;
 
 		String name = field.name.text;
-		if (ctx.prefix.len > 0 && !name_matches_fuzzy(name, ctx.prefix)) continue;
+		if (!matches_typed(ctx, name)) continue;
 		if (field_already_set(ctx, site.brace, name)) continue;
 
 		// The '.' is already on the line in the designated case; writing it

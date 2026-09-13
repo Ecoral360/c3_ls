@@ -338,7 +338,7 @@ fn void collect_methods_for_type(Context* ctx, List{CompletionItem}* items, Node
 
 		String name = cursor::spelling(ref.node, tmem) ?? "";
 		if (name.len == 0) continue;
-		if (!analysis::matches_prefix(ctx, name)) continue;
+		if (!matches_typed(ctx, name)) continue;
 
 		add_symbol_completion(ctx, items, name, ref.node, type_name);
 	}
@@ -358,7 +358,7 @@ fn void collect_module_symbols(Context* ctx, List{CompletionItem}* items, Module
 
 		String symbol_name = cursor::spelling(node, tmem) ?? "";
 		if (symbol_name.len == 0) continue;
-		if (ctx.prefix.len > 0 && !symbol_name.contains(ctx.prefix)) continue;
+		if (!matches_typed(ctx, symbol_name)) continue;
 
 		add_symbol_completion(ctx, items, symbol_name, node, ctx.base_identifier);
 	}
@@ -371,7 +371,7 @@ fn void collect_struct_fields(Context* ctx, List{CompletionItem}* items, StructD
 		VarDecl* field = field_node.as(VarDecl);
 
 		String name = field.name.text;
-		if (ctx.prefix.len > 0 && !name.contains(ctx.prefix)) continue;
+		if (!matches_typed(ctx, name)) continue;
 
 		items.push(
 			{ .label = name, .kind = FIELD, .detail = field.type ? (cursor::spelling(field.type, tmem) ?? "") : "" }

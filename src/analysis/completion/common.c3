@@ -70,7 +70,7 @@ fn void provide_keywords(Context* ctx, List{CompletionItem}* items) {
 				break;
 			default:
 		}
-		if (ctx.prefix.len == 0 || kw.name.starts_with(ctx.prefix)) {
+		if (matches_typed(ctx, kw.name)) {
 			items.push(
 				{
 					.label = kw.name,
@@ -96,6 +96,13 @@ fn sz cursor_token_index(Context* ctx) {
 	}
 
 	return last;
+}
+
+<*
+ True when `label` is still a candidate for what has been typed.
+*>
+fn bool matches_typed(Context* ctx, String label) {
+	return ctx.prefix.len == 0 || name_matches_fuzzy(label, ctx.prefix);
 }
 
 fn bool name_matches_fuzzy(String symbol_name, String prefix) {

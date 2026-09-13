@@ -37,7 +37,7 @@ fn void provide_enum_values(Context* ctx, List{CompletionItem}* items, Node* enu
 		if (!value.name) continue;
 
 		String name = value.name.text;
-		if (!analysis::matches_prefix(ctx, name)) continue;
+		if (!matches_typed(ctx, name)) continue;
 
 		items.push(
 			{

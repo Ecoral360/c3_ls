@@ -39,7 +39,7 @@ fn void provide_scope_locals(Scope* leaf, Context* ctx, List{CompletionItem}* it
 		VarDecl* decl = symbol.info.node.as(VarDecl);
 		String name   = cursor::spelling(symbol.info.node, tmem) ?? "";
 
-		if (ctx.prefix.len > 0 && !name_matches_fuzzy(name, ctx.prefix)) continue;
+		if (!matches_typed(ctx, name)) continue;
 
 		String type_name;
 		if (decl.type) {

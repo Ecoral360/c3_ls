@@ -142,6 +142,7 @@ fn Node* declaration_body(Node* node) @local {
 }
 
 <*
+
 *>
 fn CompletionContextKind find_ctx_completion_kind(Context* ctx, Location cursor_loc) {
 	// Ahead of anything AST based, because the AST is the unreliable part
@@ -301,14 +302,6 @@ fn Module* find_module_by_identifier(LspSession* session, String current_module_
 }
 
 <*
- True when `label` is still a candidate for what the user has typed.
-*>
-fn bool matches_prefix(Context* ctx, String label) {
-	if (ctx.prefix.len == 0) return true;
-	return label.starts_with(ctx.prefix);
-}
-
-<*
  The reflection properties a type exposes through '::'.
 
  Built into a scratch list and then filtered, so that typing a character
@@ -434,7 +427,7 @@ fn void inject_type_properties(Context* ctx, List{CompletionItem}* out, NodeKind
 	}
 
 	foreach (CompletionItem item : items) {
-		if (matches_prefix(ctx, item.label)) out.push(item);
+		if (completion::matches_typed(ctx, item.label)) out.push(item);
 	}
 }
 

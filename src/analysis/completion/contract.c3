@@ -31,7 +31,7 @@ fn void provide_contract(Context* ctx, List{CompletionItem}* items) {
 	if (!writing_a_directive(ctx)) return;
 
 	foreach (ContractAttribute attribute : CONTRACT_ATTRIBUTES) {
-		if (!attribute.name.starts_with(ctx.prefix)) continue;
+		if (!matches_typed(ctx, attribute.name)) continue;
 
 		// The '@' is already written, and it is not a word character, so a
 		// client replacing the word under the cursor would leave it in

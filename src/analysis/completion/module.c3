@@ -31,7 +31,7 @@ fn void provide_module_paths(Context* ctx, List{CompletionItem}* items) {
 
 			String next_segment = get_next_segment(remaining_path);
 
-			if (ctx.prefix.len > 0 && !next_segment.starts_with(ctx.prefix)) {
+			if (!matches_typed(ctx, next_segment)) {
 				break SCOPE;
 			}
 

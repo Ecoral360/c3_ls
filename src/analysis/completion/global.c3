@@ -54,7 +54,7 @@ fn void provide_global(Context* ctx, List{CompletionItem}* items) {
 		do SCOPE: {
 			if (refs.is_empty()) break SCOPE;
 
-			if (ctx.prefix.len > 0 && !name_matches_fuzzy(symbol_name, ctx.prefix)) {
+			if (!matches_typed(ctx, symbol_name)) {
 				break SCOPE;
 			}
 

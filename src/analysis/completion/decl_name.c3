@@ -136,7 +136,7 @@ fn void provide_decl_name(Context* ctx, List{CompletionItem}* items) {
 
 	String name = snake_case(ctx, site.type_name);
 	if (name.len == 0) return;
-	if (ctx.prefix.len > 0 && !name_matches_fuzzy(name, ctx.prefix)) return;
+	if (!matches_typed(ctx, name)) return;
 
 	items.push(
 		{
