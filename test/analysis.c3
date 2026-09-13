@@ -446,7 +446,7 @@ fn void lookup_reference_answers_with_the_resolved_member() => @pool() {
 	test::eq(refs[0].owner, entry);
 	test::eq(refs[0].module_name, "members");
 
-	// A plain name still answers with everything that declares it.
+	// A plain name answers too, through the same lookup completion uses.
 	Location bare   = test_support::loc_of(MEMBER_SRC, "go()");
 	Node* bare_node = cursor::node_entry(&entry.sf.ast, bare).node;
 	test::@check(!lookup_reference(&session, test_support::MEMBER_PATH, bare, bare_node).is_empty());
@@ -571,13 +571,13 @@ fn void go()
 	test::eq(session.find_symbols("Thing").len(), 2);
 
 	test::eq(
-		find_decl(types, "Thing", true, { types.file, loc }),
+		find_decl(types, "Thing", TYPE, { types.file, loc }),
 		test_support::find_top_level(&session, test_support::RANK_IMPORTED_PATH, "Thing")
 	);
 
 	// The same holds for a callable, which is looked up the same way.
 	test::eq(
-		find_decl(types, "work", false, { types.file, loc }),
+		find_decl(types, "work", CALLABLE, { types.file, loc }),
 		test_support::find_top_level(&session, test_support::RANK_IMPORTED_PATH, "work")
 	);
 }
@@ -612,15 +612,39 @@ fn void go()
 	test::eq(session.find_symbols("Thing").len(), 3);
 
 	test::eq(
-		find_decl(types, "Thing", true, { types.file, loc }),
+		find_decl(types, "Thing", TYPE, { types.file, loc }),
 		test_support::find_top_level(&session, test_support::RANK_SITE_PATH, "Thing")
 	);
 }
 
 <*
- A name that no import reaches still answers - best effort is the point -
- but a declaration another module keeps to itself is not an answer at
- all: it cannot be written here.
+ A name no import reaches is not ambiguous, it is absent: answering with
+ one of the declarations that happen to share it would be a guess, and a
+ guess that changes as the index is rewritten between keystrokes.
+*>
+fn void find_decl_answers_nothing_out_of_view() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String site_src = `module rank::site;
+
+fn void go()
+{
+	Thing t;
+}
+`;
+
+	TypeContext types = test_support::rank_types(&session, site_src);
+
+	// Both modules declare it, and the site reaches neither.
+	test::eq(session.find_symbols("Thing").len(), 2);
+	test::eq(find_decl(types, "Thing", TYPE, { types.file, test_support::loc_of(site_src, "Thing t;") }), null);
+}
+
+<*
+ An import puts a module in view, but not what that module keeps to
+ itself.
 *>
 fn void find_decl_skips_what_another_module_keeps_private() => @pool() {
 	LspSession session;
@@ -628,6 +652,8 @@ fn void find_decl_skips_what_another_module_keeps_private() => @pool() {
 	defer session.free();
 
 	String site_src = `module rank::site;
+
+import rank::stranger;
 
 fn void go()
 {
@@ -638,12 +664,12 @@ fn void go()
 
 	TypeContext types = test_support::rank_types(&session, site_src);
 
-	// Imported by nobody, so whichever `Thing` answers is a guess - but it
-	// is still one of the two.
-	Node* guessed = find_decl(types, "Thing", true, { types.file, test_support::loc_of(site_src, "Thing t;") });
-	test::ne(guessed, null);
+	test::eq(
+		find_decl(types, "Thing", TYPE, { types.file, test_support::loc_of(site_src, "Thing t;") }),
+		test_support::find_top_level(&session, test_support::RANK_STRANGER_PATH, "Thing")
+	);
 
-	test::eq(find_decl(types, "Secret", true, { types.file, test_support::loc_of(site_src, "Secret s;") }), null);
+	test::eq(find_decl(types, "Secret", TYPE, { types.file, test_support::loc_of(site_src, "Secret s;") }), null);
 }
 
 <*
@@ -683,5 +709,103 @@ fn void go()
 	test::eq(
 		expr_type(types, access.left),
 		test_support::find_top_level(&session, test_support::RANK_STRANGER_PATH, "Thing")
+	);
+}
+
+<*
+ Two modules are in view without anyone writing an import: the one this
+ module is nested in, and std::core, which every file uses and no file
+ imports.
+*>
+fn void find_decl_sees_nesting_and_core_without_an_import() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String site_src = `module rank::site;
+
+fn void go()
+{
+	Parented p;
+	Cored c;
+}
+`;
+
+	TypeContext types = test_support::rank_types(&session, site_src);
+
+	test::eq(
+		find_decl(types, "Parented", TYPE, { types.file, test_support::loc_of(site_src, "Parented p;") }),
+		test_support::find_top_level(&session, test_support::RANK_PARENT_PATH, "Parented")
+	);
+
+	test::eq(
+		find_decl(types, "Cored", TYPE, { types.file, test_support::loc_of(site_src, "Cored c;") }),
+		test_support::find_top_level(&session, test_support::RANK_CORE_PATH, "Cored")
+	);
+}
+
+<*
+ Hover and goto definition resolve a bare name the way completion does.
+
+ Both used to answer with every declaration in the workspace sharing the
+ name - two `Thing` structs meant two definitions to jump between and a
+ hover with both of them in it, only one of which the file can name.
+*>
+fn void lookup_reference_answers_with_one_declaration() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String site_src = `module rank::site;
+
+import rank::imported;
+
+fn void go()
+{
+	Thing t;
+}
+`;
+
+	test_support::rank_types(&session, site_src);
+
+	FileEntry* entry = session.entry(test_support::RANK_SITE_PATH);
+	Location loc     = test_support::loc_of(site_src, "Thing t;");
+	Node* node       = cursor::node_entry(&entry.sf.ast, loc).node;
+
+	// Both modules declare it; only one of them is imported.
+	test::eq(session.find_symbols("Thing").len(), 2);
+
+	List{SymbolRef} refs = lookup_reference(&session, test_support::RANK_SITE_PATH, loc, node);
+	test::eq(refs.len(), 1);
+	test::eq(refs[0].node, test_support::find_top_level(&session, test_support::RANK_IMPORTED_PATH, "Thing"));
+	test::eq(refs[0].owner, session.entry(test_support::RANK_IMPORTED_PATH));
+	test::eq(refs[0].module_name, "rank::imported");
+}
+
+<*
+ A name the file cannot reach has no definition to jump to.
+*>
+fn void lookup_reference_answers_nothing_out_of_view() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String site_src = `module rank::site;
+
+fn void go()
+{
+	Thing t;
+}
+`;
+
+	test_support::rank_types(&session, site_src);
+
+	FileEntry* entry = session.entry(test_support::RANK_SITE_PATH);
+	Location loc     = test_support::loc_of(site_src, "Thing t;");
+	Node* node       = cursor::node_entry(&entry.sf.ast, loc).node;
+
+	test::@check(
+		lookup_reference(&session, test_support::RANK_SITE_PATH, loc, node).is_empty(),
+		"a name no import reaches was resolved anyway"
 	);
 }

@@ -60,6 +60,26 @@ fn bool is_type_decl(Node* node) {
 	}
 }
 
+<*
+ Which declarations a lookup will take.
+*>
+enum DeclWanted : int {
+	ANY,
+	TYPE,
+	CALLABLE,
+}
+
+fn bool is_wanted(Node* node, DeclWanted wanted) {
+	switch (wanted) {
+		case TYPE:
+			return is_type_decl(node);
+		case CALLABLE:
+			return is_callable_decl(node);
+		case ANY:
+			return true;
+	}
+}
+
 fn bool is_callable_decl(Node* node) {
 	switch (node.kind) {
 		case FN_DECL:
@@ -71,33 +91,42 @@ fn bool is_callable_decl(Node* node) {
 }
 
 <*
- Look a declaration up by bare name, most reachable candidate first.
+ Look a declaration up by bare name, in the module the name is written in.
 
+ @param wanted : "which declarations count as an answer"
  @param where : "where the name is written, which is what carries the imports"
 *>
-fn Node* find_decl(TypeContext ctx, String name, bool want_type, DeclSite where) {
+fn Node* find_decl(TypeContext ctx, String name, DeclWanted wanted, DeclSite where) {
 	if (name.len == 0) return null;
 
-	String current          = ctx.mod ? ctx.mod.name : "";
 	SemaModuleContext* site = where.file ? where.file.sema_module_at_location(where.location) : null;
 
+	// The module of the section the name sits in, which is not the module
+	// of the file being edited once the site is in another file.
+	String current = site && site.mod ? site.mod.name : (ctx.mod ? ctx.mod.name : "");
+
 	Node* best;
-	DeclReach reach = NONE;
+	DeclReach reach    = NONE;
+	String best_module = "";
 
 	foreach (SymbolRef ref : ctx.session.find_symbols(name)) {
 		if (!ref.node) continue;
-		if (want_type ? !is_type_decl(ref.node) : !is_callable_decl(ref.node)) continue;
+		if (!is_wanted(ref.node, wanted)) continue;
 
 		DeclReach candidate = decl_reach(ref, current, site);
 
-		// A declaration another module keeps to itself cannot be written
-		// here, so it is not a worse candidate - it is not one at all.
-		if (candidate == NONE && ref.node.visibility != PUBLIC) continue;
+		// Out of view is ignored
+		if (candidate == NONE && site) continue;
 
-		if (best && candidate <= reach) continue;
+		// A declaration another module keeps to itself cannot be named from
+		// outside it, whichever way that module is in view.
+		if (candidate != OWN && ref.node.visibility != PUBLIC) continue;
+
+		if (best && !outranks(candidate, ref.module_name, reach, best_module)) continue;
 
 		best = ref.node;
 		reach = candidate;
+		best_module = ref.module_name;
 
 		// Nothing outranks the module the name is written in.
 		if (reach == OWN) break;
@@ -107,13 +136,20 @@ fn Node* find_decl(TypeContext ctx, String name, bool want_type, DeclSite where)
 }
 
 <*
- How a candidate is reachable from the module the name is written in.
+ How a candidate is in view from the module the name is written in.
 
  Ordered worst to best: the ranking compares these directly.
 *>
 enum DeclReach : int @local {
+	<* Out of view: no import, no nesting, not std::core. *>
 	NONE,
+	<* In std::core, which needs no import. *>
+	CORE,
+	<* A module this one imported. *>
 	IMPORTED,
+	<* A module this one nests with, parent or child. *>
+	NESTED,
+	<* The module the name is written in. *>
 	OWN,
 }
 
@@ -126,9 +162,50 @@ enum DeclReach : int @local {
 *>
 fn DeclReach decl_reach(SymbolRef ref, String current, SemaModuleContext* site) @local {
 	if (current.len > 0 && ref.module_name == current) return OWN;
+	if (modules_nest(current, ref.module_name)) return NESTED;
 	if (site && site.imports_module(ref.module_name)) return IMPORTED;
+	if (is_core_module(ref.module_name)) return CORE;
 
 	return NONE;
+}
+
+<*
+ True when the candidate should take the place of the one held so far.
+*>
+fn bool outranks(DeclReach candidate, String module_name, DeclReach held, String held_module) @local {
+	if (candidate != held) return candidate > held;
+
+	return sorts_before(module_name, held_module);
+}
+
+fn bool sorts_before(String a, String b) @local {
+	usz shared = (usz)min(a.len, b.len);
+
+	for (usz i = 0; i < shared; i++) {
+		if (a[i] != b[i]) return a[i] < b[i];
+	}
+
+	return a.len < b.len;
+}
+
+<*
+ True when one module contains the other.
+*>
+fn bool modules_nest(String a, String b) @local {
+	if (a.len == 0 || b.len == 0) return false;
+
+	String outer = a.len < b.len ? a : b;
+	String inner = a.len < b.len ? b : a;
+
+	return inner.len > outer.len && inner.starts_with(outer) && inner[outer.len..].starts_with("::");
+}
+
+<*
+ std::core and everything under it is in view of every module: nothing
+ imports it, and every file uses it.
+*>
+fn bool is_core_module(String module_name) @local {
+	return module_name == "std::core" || module_name.starts_with("std::core::");
 }
 
 <*
@@ -142,7 +219,7 @@ fn Node* type_decl_of(TypeContext ctx, Node* type_expr, FileEntry* owner = null)
 	String name = cursor::raw_type_identifier(type_expr) ?? "";
 	if (name.len == 0) return null;
 
-	return find_decl(ctx, name, true, ctx.site_of(type_expr, owner));
+	return find_decl(ctx, name, TYPE, ctx.site_of(type_expr, owner));
 }
 
 <*
@@ -240,7 +317,7 @@ fn Node* self_type(TypeContext ctx) {
 	String type_name = self_type_name(ctx);
 	if (type_name.len == 0) return null;
 
-	return find_decl(ctx, type_name, true, ctx.cursor_site());
+	return find_decl(ctx, type_name, TYPE, ctx.cursor_site());
 }
 
 <*
@@ -359,7 +436,7 @@ fn Node* expr_type(TypeContext ctx, Node* expr) {
 			// A variable shadows a type of the same name.
 			Node* declared = variable_type(ctx, ident.ident.text);
 			if (declared) return declared;
-			return find_decl(ctx, ident.ident.text, true, ctx.site_of(expr));
+			return find_decl(ctx, ident.ident.text, TYPE, ctx.site_of(expr));
 
 		case CALL_EXPR:
 			return return_type_decl(ctx, expr_decl(ctx, expr.as(CallExpr).callee));
@@ -405,7 +482,7 @@ fn Node* expr_decl(TypeContext ctx, Node* expr) {
 		case IDENT_EXPR:
 			IdentExpr* ident = expr.as(IdentExpr);
 			if (!ident.ident) return null;
-			return find_decl(ctx, ident.ident.text, false, ctx.site_of(expr));
+			return find_decl(ctx, ident.ident.text, CALLABLE, ctx.site_of(expr));
 
 		case ACCESS_EXPR:
 			AccessExpr* access = expr.as(AccessExpr);

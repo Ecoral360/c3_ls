@@ -738,6 +738,9 @@ fn List{SymbolRef} lookup_reference(LspSession* session, String path, Location l
 		if (symbol.path.len == 0) {
 			Node* local = variable_decl(types, symbol.name);
 			if (local) return single_ref(local, entry, current);
+
+			Node* decl = find_decl(types, symbol.name, ANY, types.cursor_site());
+			return single_ref(decl, session.entry_for_node(decl), session.module_of(decl));
 		}
 	}
 

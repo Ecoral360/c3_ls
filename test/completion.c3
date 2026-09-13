@@ -2218,6 +2218,8 @@ fn void resolve_survives_a_file_with_no_nodes() => @pool() {
 
 const String DECL_NAME_SRC = `module names;
 
+import libc;
+
 struct Point
 {
 	int x;

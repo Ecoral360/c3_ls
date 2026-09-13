@@ -852,6 +852,8 @@ const String RANK_SITE_PATH     = "/virtual/rank_site.c3";
 const String RANK_IMPORTED_PATH = "/virtual/rank_imported.c3";
 const String RANK_STRANGER_PATH = "/virtual/rank_stranger.c3";
 const String RANK_HOLDER_PATH   = "/virtual/rank_holder.c3";
+const String RANK_PARENT_PATH   = "/virtual/rank_parent.c3";
+const String RANK_CORE_PATH     = "/virtual/rank_core.c3";
 
 const String RANK_IMPORTED_SRC = `module rank::imported;
 
@@ -898,6 +900,26 @@ struct Holder
 `;
 
 <*
+ The module `rank::site` is nested in, and one under std::core. Neither
+ is imported anywhere: both are in view all the same.
+*>
+const String RANK_PARENT_SRC = `module rank;
+
+struct Parented
+{
+	int from_parent;
+}
+`;
+
+const String RANK_CORE_SRC = `module std::core::rank_extra;
+
+struct Cored
+{
+	int from_core;
+}
+`;
+
+<*
  Load the rank modules and hand back the context a name written in
  `rank::site` resolves through.
 
@@ -907,8 +929,19 @@ fn TypeContext rank_types(LspSession* session, String site_src) {
 	session.set_file(RANK_IMPORTED_PATH, RANK_IMPORTED_SRC);
 	session.set_file(RANK_STRANGER_PATH, RANK_STRANGER_SRC);
 	session.set_file(RANK_HOLDER_PATH, RANK_HOLDER_SRC);
+	session.set_file(RANK_PARENT_PATH, RANK_PARENT_SRC);
+	session.set_file(RANK_CORE_PATH, RANK_CORE_SRC);
 	session.set_file(RANK_SITE_PATH, site_src);
 	session.rebuild_index();
+
+	// Every file, not only the one being looked at: what a name written in
+	// another file means is decided by that file's imports, and sema is
+	// what records them.
+	session.analyze(RANK_IMPORTED_PATH);
+	session.analyze(RANK_STRANGER_PATH);
+	session.analyze(RANK_HOLDER_PATH);
+	session.analyze(RANK_PARENT_PATH);
+	session.analyze(RANK_CORE_PATH);
 	session.analyze(RANK_SITE_PATH);
 
 	return {

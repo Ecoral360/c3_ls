@@ -150,7 +150,7 @@ fn sz type_start(Context* ctx, sz last) @private {
 }
 
 fn Node* type_named(Context* ctx, String name) @local {
-	Node* decl = analysis::find_decl(type_context(ctx), name, true, type_context(ctx).cursor_site());
+	Node* decl = analysis::find_decl(type_context(ctx), name, DeclWanted.TYPE, type_context(ctx).cursor_site());
 
 	return decl && decl.kind == STRUCT_DECL ? decl : null;
 }
