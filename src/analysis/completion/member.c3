@@ -194,7 +194,7 @@ fn Node* resolve_chain_root(Context* ctx, ChainSegment seg) @local {
 	// 'foo()' stands for whatever foo returns.
 	if (seg.is_call) return analysis::return_type_decl(
 		type_context(ctx),
-		analysis::find_decl(type_context(ctx), seg.name, false)
+		analysis::find_decl(type_context(ctx), seg.name, false, type_context(ctx).cursor_site())
 	);
 
 	// A variable shadows a type of the same name, so the scope chain wins.
@@ -210,7 +210,7 @@ fn Node* resolve_chain_root(Context* ctx, ChainSegment seg) @local {
 	if (seg.name == "self") return analysis::self_type(type_context(ctx));
 
 	// Otherwise the name is the type itself
-	return analysis::find_decl(type_context(ctx), seg.name, true);
+	return analysis::find_decl(type_context(ctx), seg.name, true, type_context(ctx).cursor_site());
 }
 
 <*
@@ -236,7 +236,7 @@ fn Node* resolve_member_type(Context* ctx, Node* type_decl, ChainSegment seg) @l
 		VarDecl* field = field_node.as(VarDecl);
 		if (!field.name || field.name.text != seg.name) continue;
 
-		return analysis::type_decl_of(type_context(ctx), field.type);
+		return analysis::type_decl_of(type_context(ctx), field.type, ctx.session.entry_for_node(type_decl));
 	}
 
 	Node* next = str_decl.next;

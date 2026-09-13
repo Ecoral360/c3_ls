@@ -110,7 +110,7 @@ fn bool is_stdlib_type(Context* ctx, String type_name) @local {
 	// exception for the Allocator type
 	if (type_name == "Allocator") return false;
 
-	Node* decl = analysis::find_decl(type_context(ctx), type_name, true);
+	Node* decl = analysis::find_decl(type_context(ctx), type_name, true, type_context(ctx).cursor_site());
 	if (!decl) return false;
 
 	Module* owner = ctx.session.module_of(decl);

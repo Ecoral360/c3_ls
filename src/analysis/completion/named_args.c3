@@ -75,7 +75,7 @@ fn Node* resolve_callee(Context* ctx, sz open) @local {
 	TypeContext types = type_context(ctx);
 	ChainSegment last = chain[chain.len - 1];
 
-	if (chain.len == 1) return callable_or_null(analysis::find_decl(types, last.name, false));
+	if (chain.len == 1) return callable_or_null(analysis::find_decl(types, last.name, false, types.cursor_site()));
 
 	Node* base = resolve_chain(ctx, chain[:chain.len - 1]);
 	if (base) {

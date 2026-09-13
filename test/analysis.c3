@@ -543,3 +543,145 @@ fn void signature_text_accepts_an_explicit_owner() => @pool() {
 	Node* first   = go_decl.as(FnDecl).body.as(CompoundStmt).statements[1];
 	test::eq(session.node_signature_text(first, entry), "int a");
 }
+
+<*
+ A bare name means the declaration the module can actually reach, and an
+ import is what makes one reachable.
+*>
+fn void find_decl_prefers_an_imported_module() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String site_src = `module rank::site;
+
+import rank::imported;
+
+fn void go()
+{
+	Thing t;
+	work();
+}
+`;
+
+	TypeContext types = test_support::rank_types(&session, site_src);
+	Location loc      = test_support::loc_of(site_src, "Thing t;");
+
+	// The name is genuinely ambiguous: both other modules declare it.
+	test::eq(session.find_symbols("Thing").len(), 2);
+
+	test::eq(
+		find_decl(types, "Thing", true, { types.file, loc }),
+		test_support::find_top_level(&session, test_support::RANK_IMPORTED_PATH, "Thing")
+	);
+
+	// The same holds for a callable, which is looked up the same way.
+	test::eq(
+		find_decl(types, "work", false, { types.file, loc }),
+		test_support::find_top_level(&session, test_support::RANK_IMPORTED_PATH, "work")
+	);
+}
+
+<*
+ Nothing outranks the module the name is written in - not even an import,
+ whichever of the two the index happens to list first.
+*>
+fn void find_decl_prefers_the_writing_module() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String site_src = `module rank::site;
+
+import rank::imported;
+
+struct Thing
+{
+	int from_site;
+}
+
+fn void go()
+{
+	Thing t;
+}
+`;
+
+	TypeContext types = test_support::rank_types(&session, site_src);
+	Location loc      = test_support::loc_of(site_src, "Thing t;");
+
+	test::eq(session.find_symbols("Thing").len(), 3);
+
+	test::eq(
+		find_decl(types, "Thing", true, { types.file, loc }),
+		test_support::find_top_level(&session, test_support::RANK_SITE_PATH, "Thing")
+	);
+}
+
+<*
+ A name that no import reaches still answers - best effort is the point -
+ but a declaration another module keeps to itself is not an answer at
+ all: it cannot be written here.
+*>
+fn void find_decl_skips_what_another_module_keeps_private() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String site_src = `module rank::site;
+
+fn void go()
+{
+	Thing t;
+	Secret s;
+}
+`;
+
+	TypeContext types = test_support::rank_types(&session, site_src);
+
+	// Imported by nobody, so whichever `Thing` answers is a guess - but it
+	// is still one of the two.
+	Node* guessed = find_decl(types, "Thing", true, { types.file, test_support::loc_of(site_src, "Thing t;") });
+	test::ne(guessed, null);
+
+	test::eq(find_decl(types, "Secret", true, { types.file, test_support::loc_of(site_src, "Secret s;") }), null);
+}
+
+<*
+ A field's type is written where the field is, not where the cursor is.
+
+ `rank::holder` imports one `Thing` and `rank::site` the other, so a
+ lookup that read the field's type in the file being edited answered with
+ the wrong struct - and with the wrong fields behind it.
+*>
+fn void find_decl_reads_a_field_type_in_its_own_file() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String site_src = `module rank::site;
+
+import rank::imported;
+import rank::holder;
+
+fn void go()
+{
+	Holder h;
+	int v = h.thing.from_stranger;
+}
+`;
+
+	TypeContext types = test_support::rank_types(&session, site_src);
+	FileEntry* entry  = session.entry(test_support::RANK_SITE_PATH);
+
+	types.location = test_support::loc_of(site_src, "from_stranger;");
+
+	AccessExpr* access = access_at(entry.sf, types.location);
+	test::ne(access, null);
+
+	// `h.thing` is the holder's `Thing`, which is the one its own module
+	// imported.
+	test::eq(
+		expr_type(types, access.left),
+		test_support::find_top_level(&session, test_support::RANK_STRANGER_PATH, "Thing")
+	);
+}

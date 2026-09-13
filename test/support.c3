@@ -846,3 +846,74 @@ fn String[] enum_values_for(LspSession* session, String src, String typed) {
 
 	return labels.to_tarray();
 }
+
+
+const String RANK_SITE_PATH     = "/virtual/rank_site.c3";
+const String RANK_IMPORTED_PATH = "/virtual/rank_imported.c3";
+const String RANK_STRANGER_PATH = "/virtual/rank_stranger.c3";
+const String RANK_HOLDER_PATH   = "/virtual/rank_holder.c3";
+
+const String RANK_IMPORTED_SRC = `module rank::imported;
+
+struct Thing
+{
+	int from_imported;
+}
+
+fn void work()
+{
+}
+`;
+
+const String RANK_STRANGER_SRC = `module rank::stranger;
+
+struct Thing
+{
+	int from_stranger;
+}
+
+struct Secret @private
+{
+	int hidden;
+}
+
+fn void work()
+{
+}
+`;
+
+<*
+ A fourth module, holding a field whose type is the ambiguous name. It
+ imports the other one, so what `Thing` means here is not what it means
+ in `rank::site`.
+*>
+const String RANK_HOLDER_SRC = `module rank::holder;
+
+import rank::stranger;
+
+struct Holder
+{
+	Thing thing;
+}
+`;
+
+<*
+ Load the rank modules and hand back the context a name written in
+ `rank::site` resolves through.
+
+ @param [&inout] session
+*>
+fn TypeContext rank_types(LspSession* session, String site_src) {
+	session.set_file(RANK_IMPORTED_PATH, RANK_IMPORTED_SRC);
+	session.set_file(RANK_STRANGER_PATH, RANK_STRANGER_SRC);
+	session.set_file(RANK_HOLDER_PATH, RANK_HOLDER_SRC);
+	session.set_file(RANK_SITE_PATH, site_src);
+	session.rebuild_index();
+	session.analyze(RANK_SITE_PATH);
+
+	return {
+		.session = session,
+		.file = session.entry(RANK_SITE_PATH),
+		.mod = session.module_for_file(RANK_SITE_PATH),
+	};
+}

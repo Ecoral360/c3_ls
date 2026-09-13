@@ -33,6 +33,29 @@ struct SemaModuleContext
 	HashMap{String, ImportInfo} imports;
 }
 
+fn bool SemaModuleContext.imports_module(&self, String module_name)
+{
+	if (self.imports.has_key(module_name)) return true;
+
+	sz offset = 0;
+	while (try idx = module_name[offset..].index_of("::"))
+	{
+		sz break_pos         = offset + idx;
+		String parent_prefix = module_name[:break_pos];
+
+		// An 'import x @norecurse' covers x but nothing under it, so a match on
+		// one is not an answer: another import may still cover this module.
+		if (try info = self.imports.get(parent_prefix))
+		{
+			if (!info.norecurse) return true;
+		}
+
+		offset = break_pos + 2;
+	}
+
+	return false;
+}
+
 fn SemaContext* new(AnalyzerContext* context)
 {
 	SemaContext* ctx = alloc::new(context.allocator, SemaContext);
@@ -97,6 +120,23 @@ fn SemaModuleContext* SemaContext.enter_module_section(&self, String name, Locat
 	}
 
 	return self.set_current_module(name);
+}
+
+<*
+ @return "true if the node was a module node and it has been processed"
+*>
+fn bool SemaContext.handle_module_node(&self, Node* node)
+{
+	if (!node || node.kind != MODULE_DECL) return false;
+
+	ModuleDecl* mod_decl = node.as(ModuleDecl);
+	if (!mod_decl.path || mod_decl.path.kind != PATH_EXPR) return true;
+
+	PathExpr* expr   = mod_decl.path.as(PathExpr);
+	String full_path = expr.path.text;
+
+	self.enter_module_section(full_path, node.range.start);
+	return true;
 }
 
 fn SemaModuleContext* set_default_module(SemaContext* ctx, SourceFile* sf) @local

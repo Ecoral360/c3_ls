@@ -25,6 +25,29 @@ struct TypeContext {
 	Location location;
 }
 
+struct DeclSite {
+	FileEntry* file;
+	Location location;
+}
+
+<*
+ The site the cursor is at, which is where a name being typed is written.
+*>
+fn DeclSite TypeContext.cursor_site(&self) {
+	return { .file = self.file, .location = self.location };
+}
+
+<*
+ The site `node` is written at.
+
+ @param owner : "the file `node` came from; the cursor's file when the caller cannot say"
+*>
+fn DeclSite TypeContext.site_of(&self, Node* node, FileEntry* owner = null) {
+	if (!node) return self.cursor_site();
+
+	return { .file = owner ?: self.file, .location = node.range.start };
+}
+
 fn bool is_type_decl(Node* node) {
 	switch (node.kind) {
 		case STRUCT_DECL:
@@ -48,39 +71,78 @@ fn bool is_callable_decl(Node* node) {
 }
 
 <*
- Look a declaration up by bare name, preferring the current module.
+ Look a declaration up by bare name, most reachable candidate first.
 
- The index is keyed by bare name, and a name like 'Point' is declared in
- more than one module often enough that taking the first match picks a
- stdlib type and offers its members.
+ @param where : "where the name is written, which is what carries the imports"
 *>
-fn Node* find_decl(TypeContext ctx, String name, bool want_type) {
+fn Node* find_decl(TypeContext ctx, String name, bool want_type, DeclSite where) {
 	if (name.len == 0) return null;
 
-	String current = ctx.mod ? ctx.mod.name : "";
-	Node* fallback;
+	String current          = ctx.mod ? ctx.mod.name : "";
+	SemaModuleContext* site = where.file ? where.file.sema_module_at_location(where.location) : null;
+
+	Node* best;
+	DeclReach reach = NONE;
 
 	foreach (SymbolRef ref : ctx.session.find_symbols(name)) {
 		if (!ref.node) continue;
 		if (want_type ? !is_type_decl(ref.node) : !is_callable_decl(ref.node)) continue;
 
-		if (current.len > 0 && ref.module_name == current) return ref.node;
-		if (!fallback) fallback = ref.node;
+		DeclReach candidate = decl_reach(ref, current, site);
+
+		// A declaration another module keeps to itself cannot be written
+		// here, so it is not a worse candidate - it is not one at all.
+		if (candidate == NONE && ref.node.visibility != PUBLIC) continue;
+
+		if (best && candidate <= reach) continue;
+
+		best = ref.node;
+		reach = candidate;
+
+		// Nothing outranks the module the name is written in.
+		if (reach == OWN) break;
 	}
 
-	return fallback;
+	return best;
+}
+
+<*
+ How a candidate is reachable from the module the name is written in.
+
+ Ordered worst to best: the ranking compares these directly.
+*>
+enum DeclReach : int @local {
+	NONE,
+	IMPORTED,
+	OWN,
+}
+
+<*
+ Where `ref` stands relative to the module the name is written in.
+
+ `site` is that module's section, which is what carries the imports: a
+ file declares one per `module` line, and two sections of the same file
+ import different things.
+*>
+fn DeclReach decl_reach(SymbolRef ref, String current, SemaModuleContext* site) @local {
+	if (current.len > 0 && ref.module_name == current) return OWN;
+	if (site && site.imports_module(ref.module_name)) return IMPORTED;
+
+	return NONE;
 }
 
 <*
  Declaration of the type a written type expression names.
+
+ @param owner : "the file the expression was written in; the cursor's file when the caller cannot say"
 *>
-fn Node* type_decl_of(TypeContext ctx, Node* type_expr) {
+fn Node* type_decl_of(TypeContext ctx, Node* type_expr, FileEntry* owner = null) {
 	if (!type_expr) return null;
 
 	String name = cursor::raw_type_identifier(type_expr) ?? "";
 	if (name.len == 0) return null;
 
-	return find_decl(ctx, name, true);
+	return find_decl(ctx, name, true, ctx.site_of(type_expr, owner));
 }
 
 <*
@@ -89,11 +151,15 @@ fn Node* type_decl_of(TypeContext ctx, Node* type_expr) {
 fn Node* return_type_decl(TypeContext ctx, Node* callable) {
 	if (!callable) return null;
 
+	// The return type is written where the callable is, which is rarely
+	// the file being edited.
+	FileEntry* owner = ctx.session.entry_for_node(callable);
+
 	switch (callable.kind) {
 		case FN_DECL:
-			return type_decl_of(ctx, callable.as(FnDecl).ret_type);
+			return type_decl_of(ctx, callable.as(FnDecl).ret_type, owner);
 		case MACRO_DECL:
-			return type_decl_of(ctx, callable.as(MacroDecl).ret_type.get() ?? null);
+			return type_decl_of(ctx, callable.as(MacroDecl).ret_type.get() ?? null, owner);
 		default:
 			return null;
 	}
@@ -174,7 +240,7 @@ fn Node* self_type(TypeContext ctx) {
 	String type_name = self_type_name(ctx);
 	if (type_name.len == 0) return null;
 
-	return find_decl(ctx, type_name, true);
+	return find_decl(ctx, type_name, true, ctx.cursor_site());
 }
 
 <*
@@ -293,7 +359,7 @@ fn Node* expr_type(TypeContext ctx, Node* expr) {
 			// A variable shadows a type of the same name.
 			Node* declared = variable_type(ctx, ident.ident.text);
 			if (declared) return declared;
-			return find_decl(ctx, ident.ident.text, true);
+			return find_decl(ctx, ident.ident.text, true, ctx.site_of(expr));
 
 		case CALL_EXPR:
 			return return_type_decl(ctx, expr_decl(ctx, expr.as(CallExpr).callee));
@@ -301,9 +367,16 @@ fn Node* expr_type(TypeContext ctx, Node* expr) {
 		case ACCESS_EXPR:
 			// A field access is a value of the field's type. A bare method
 			// reference is not a value, so it has no type here.
-			Node* member = expr_decl(ctx, expr);
+			AccessExpr* access = expr.as(AccessExpr);
+			if (!access.member) return null;
+
+			Node* base   = expr_type(ctx, access.left);
+			Node* member = find_member(ctx, base, cursor::spelling(access.member, tmem) ?? "");
 			if (!member || member.kind != VAR_DECL) return null;
-			return type_decl_of(ctx, member.as(VarDecl).type);
+
+			// A field is not a top level statement, so the index cannot say
+			// which file it came from: the type it belongs to answers that.
+			return type_decl_of(ctx, member.as(VarDecl).type, ctx.session.entry_for_node(base));
 
 		// Transparent wrappers.
 		case GROUP_EXPR:
@@ -314,7 +387,7 @@ fn Node* expr_type(TypeContext ctx, Node* expr) {
 			return expr_type(ctx, expr.as(MaybeDerefExpr).left);
 		case CAST_EXPR:
 			// A cast is a value of the type cast to, not of the operand.
-			return type_decl_of(ctx, expr.as(CastExpr).inner);
+			return type_decl_of(ctx, expr.as(CastExpr).inner, ctx.file);
 
 		default:
 			return null;
@@ -332,7 +405,7 @@ fn Node* expr_decl(TypeContext ctx, Node* expr) {
 		case IDENT_EXPR:
 			IdentExpr* ident = expr.as(IdentExpr);
 			if (!ident.ident) return null;
-			return find_decl(ctx, ident.ident.text, false);
+			return find_decl(ctx, ident.ident.text, false, ctx.site_of(expr));
 
 		case ACCESS_EXPR:
 			AccessExpr* access = expr.as(AccessExpr);

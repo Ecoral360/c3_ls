@@ -117,7 +117,7 @@ fn Node* assigned_type(Context* ctx, sz brace, sz i) @local {
 		Node* field = analysis::find_field(outer_type, name);
 		if (!field) return null;
 
-		return analysis::type_decl_of(type_context(ctx), field.as(VarDecl).type);
+		return analysis::type_decl_of(type_context(ctx), field.as(VarDecl).type, ctx.session.entry_for_node(outer_type));
 	}
 
 	// 'Point p = {' and 'List{int} lst = {'.
@@ -150,7 +150,7 @@ fn sz type_start(Context* ctx, sz last) @private {
 }
 
 fn Node* type_named(Context* ctx, String name) @local {
-	Node* decl = analysis::find_decl(type_context(ctx), name, true);
+	Node* decl = analysis::find_decl(type_context(ctx), name, true, type_context(ctx).cursor_site());
 
 	return decl && decl.kind == STRUCT_DECL ? decl : null;
 }
