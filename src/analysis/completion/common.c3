@@ -44,6 +44,24 @@ struct Context {
 	Location base_location;
 }
 
+<*
+ A Context for a position, with no prefix and no access chain.
+*>
+fn Context context_at(LspSession* session, FileEntry* file, Module* mod, Location location) {
+	Context ctx = {
+		.session = session,
+		.allocator = tmem,
+		.file = file,
+		.sf = file ? file.sf : null,
+		.mod = mod,
+		.location = location,
+	};
+
+	context_populate_tokens(&ctx);
+
+	return ctx;
+}
+
 fn void provide_keywords(Context* ctx, List{CompletionItem}* items) {
 	if (ctx.access != NONE) return;
 

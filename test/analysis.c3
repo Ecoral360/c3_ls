@@ -809,3 +809,81 @@ fn void go()
 		"a name no import reaches was resolved anyway"
 	);
 }
+
+const String CASE_REF_PATH = "/virtual/switches.c3";
+
+const String CASE_REF_SRC = `module switches;
+
+enum Color : int
+{
+	RED,
+	GREEN,
+}
+
+const int LIMIT = 3;
+
+fn void go(Color c, int n)
+{
+	switch (c)
+	{
+		case RED:
+			break;
+	}
+	switch (n)
+	{
+		case LIMIT:
+			break;
+	}
+}
+`;
+
+<*
+ A case label of a switch over an enum names one of that enum's values.
+
+ The value is written bare and is not a top level statement, so neither
+ the index nor any scope has it: hover and goto definition had nothing to
+ answer with until the switch was asked which enum it means.
+*>
+fn void lookup_reference_resolves_a_case_label_value() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, CASE_REF_PATH, CASE_REF_SRC);
+
+	FileEntry* entry = session.entry(CASE_REF_PATH);
+	Node* color      = test_support::find_top_level(&session, CASE_REF_PATH, "Color");
+
+	Location loc = test_support::loc_of(CASE_REF_SRC, "RED:");
+	Node* node   = cursor::node_entry(&entry.sf.ast, loc).node;
+
+	List{SymbolRef} refs = lookup_reference(&session, CASE_REF_PATH, loc, node);
+	test::eq(refs.len(), 1);
+	test::eq(refs[0].node, color.as(EnumDecl).variants[0]);
+
+	// The value is not in the index, so the enum it belongs to says which
+	// file and module it came from.
+	test::eq(refs[0].owner, entry);
+	test::eq(refs[0].module_name, "switches");
+}
+
+<*
+ A label of a switch over anything else is an ordinary name, and still
+ resolves as one.
+*>
+fn void lookup_reference_leaves_other_case_labels_alone() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, CASE_REF_PATH, CASE_REF_SRC);
+
+	FileEntry* entry = session.entry(CASE_REF_PATH);
+
+	Location loc = test_support::loc_of(CASE_REF_SRC, "LIMIT:");
+	Node* node   = cursor::node_entry(&entry.sf.ast, loc).node;
+
+	List{SymbolRef} refs = lookup_reference(&session, CASE_REF_PATH, loc, node);
+	test::eq(refs.len(), 1);
+	test::eq(refs[0].node, test_support::find_top_level(&session, CASE_REF_PATH, "LIMIT"));
+}

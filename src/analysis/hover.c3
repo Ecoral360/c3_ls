@@ -88,15 +88,13 @@ fn String? hover(LspProject* project, Uri uri, LspPosition pos) {
 		// slice and says nothing about what it is. The type it stands for
 		// is the associated type of the method the cursor is in.
 		String signature = receiver_signature(sf, loc, origin.node);
+
+		if (signature.len == 0) signature = enum_value_signature(origin.node, origin.owner);
 		if (signature.len == 0) signature = project.session.node_signature_text(origin.node, origin.owner);
 		if (signature.len == 0) continue;
 
 		signature = string::tformat("```c3\n%s\n```", signature);
 
-		// The signature is the part that is always there. A doc comment
-		// gets appended when the declaration has one; requiring one meant
-		// hovering anything undocumented - most methods included - showed
-		// nothing at all.
 		if (try ContractDecl* contract = cursor::contract(origin.node)) {
 			String documented = contract_markdown(&project.session, contract, origin.owner);
 			if (documented.len > 0) {
@@ -254,6 +252,29 @@ fn String modifier_text(InOutModifier modifier, bool by_ref) @private {
 	}
 
 	return string::tformat("[%s%s] ", by_ref ? "&" : "", name);
+}
+
+<*
+ `Color.RED` for an enum value, empty for anything else.
+*>
+fn String enum_value_signature(Node* node, FileEntry* owner) @private {
+	if (!node || node.kind != VAR_DECL || !owner || !owner.sf) return "";
+
+	VarDecl* value = node.as(VarDecl);
+	if (!value.var_flags.is_const || !value.name) return "";
+
+	foreach (Node* statement : owner.sf.ast.statements) {
+		if (!statement || statement.kind != ENUM_DECL) continue;
+
+		EnumDecl* decl = statement.as(EnumDecl);
+		if (!decl.name) continue;
+
+		foreach (Node* variant : decl.variants) {
+			if (variant == node) return string::tformat("%s.%s", decl.name.text, value.name.text);
+		}
+	}
+
+	return "";
 }
 
 <*

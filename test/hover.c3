@@ -146,3 +146,43 @@ fn void contract_markdown_handles_the_plain_cases() => @pool() {
 	Node* bare = test_support::find_top_level(&session, CONTRACT_PATH, "bare");
 	test::eq(contract_markdown(&session, cursor::contract(bare) ?? null, entry), "");
 }
+
+const String ENUM_VALUE_SRC = `module shades;
+
+enum Color : int
+{
+	RED,
+	GREEN,
+}
+
+const int LIMIT = 3;
+`;
+
+const String ENUM_VALUE_PATH = "/virtual/shades.c3";
+
+<*
+ An enum value is written bare, and its own source text is only its name.
+
+ Hovering a case label showed `RED`, which says nothing about what it is
+ or where it came from.
+*>
+fn void enum_value_signature_names_the_enum() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, ENUM_VALUE_PATH, ENUM_VALUE_SRC);
+
+	FileEntry* entry = session.entry(ENUM_VALUE_PATH);
+	Node* color      = test_support::find_top_level(&session, ENUM_VALUE_PATH, "Color");
+
+	test::eq(enum_value_signature(color.as(EnumDecl).variants[0], entry), "Color.RED");
+	test::eq(enum_value_signature(color.as(EnumDecl).variants[1], entry), "Color.GREEN");
+
+	// A constant that belongs to no enum is signed the ordinary way, and
+	// so is anything that is not a declaration at all.
+	test::eq(enum_value_signature(test_support::find_top_level(&session, ENUM_VALUE_PATH, "LIMIT"), entry), "");
+	test::eq(enum_value_signature(color, entry), "");
+	test::eq(enum_value_signature(null, entry), "");
+	test::eq(enum_value_signature(color.as(EnumDecl).variants[0], null), "");
+}

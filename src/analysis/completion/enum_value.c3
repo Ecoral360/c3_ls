@@ -21,6 +21,46 @@ fn Node* inferred_enum(Context* ctx) {
 }
 
 <*
+ The enum value a bare name in a case label stands for, with the enum it
+ belongs to.
+*>
+fn MemberResolution case_label_value(
+	LspSession* session,
+	FileEntry* file,
+	Module* mod,
+	Location location,
+	String name
+) {
+	if (!file || !file.sf || name.len == 0) return { };
+
+	Context ctx = context_at(session, file, mod, location);
+
+	Node* enum_decl = inferred_enum(&ctx);
+	if (!enum_decl) return { };
+
+	Node* value = enum_value_named(enum_decl, name);
+	if (!value) return { };
+
+	return { .decl = value, .type_decl = enum_decl };
+}
+
+<*
+ The value of `enum_decl` written `name`, or null.
+*>
+fn Node* enum_value_named(Node* enum_decl, String name) {
+	if (!enum_decl || enum_decl.kind != ENUM_DECL) return null;
+
+	foreach (Node* variant : enum_decl.as(EnumDecl).variants) {
+		if (!variant || variant.kind != VAR_DECL) continue;
+
+		VarDecl* value = variant.as(VarDecl);
+		if (value.name && value.name.text == name) return variant;
+	}
+
+	return null;
+}
+
+<*
  Offer the values of `enum_decl` the way a case label takes them: bare,
  with no type in front.
 *>
