@@ -104,21 +104,51 @@ fn Node* return_type_decl(TypeContext ctx, Node* callable) {
  or a file scope global once sema has put it in the root scope.
 
  The symbol index only carries top level declarations, so the scope tree
- is the only place a local or a parameter exists.
+ is the only place a local exists. A parameter is also reachable through
+ the signature, which is what answers when the body did not parse.
 *>
 fn Node* variable_decl(TypeContext ctx, String name) {
 	if (!ctx.file || name.len == 0) return null;
 
 	SemaModuleContext* sema_module = ctx.file.sema_module_at_location(ctx.location);
-	if (!sema_module) return null;
+	if (!sema_module) return signature_param(ctx, name);
 
 	Scope* leaf = core::find_deepest_scope(sema_module.runtime_scope, ctx.location);
-	if (!leaf) return null;
+	if (!leaf) return signature_param(ctx, name);
 
 	VariableInfo* info = scope::get_variable(leaf, name);
-	if (!info || !info.node || info.node.kind != VAR_DECL) return null;
+	if (!info || !info.node || info.node.kind != VAR_DECL) return signature_param(ctx, name);
 
 	return info.node;
+}
+
+<*
+ The parameter named `name` in the signature the cursor is inside of, or null.
+*>
+fn Node* signature_param(TypeContext ctx, String name) @local {
+	if (!ctx.file || !ctx.file.sf) return null;
+
+	Node* enclosing = core::top_level_at(ctx.file.sf, ctx.location);
+	if (!enclosing) return null;
+
+	NodeArray params;
+	switch (enclosing.kind) {
+		case FN_DECL:
+			params = enclosing.as(FnDecl).params;
+		case MACRO_DECL:
+			params = enclosing.as(MacroDecl).params;
+		default:
+			return null;
+	}
+
+	foreach (Node* param : params) {
+		if (!param || param.kind != VAR_DECL) continue;
+
+		VarDecl* decl = param.as(VarDecl);
+		if (decl.name && decl.name.text == name) return param;
+	}
+
+	return null;
 }
 
 <*

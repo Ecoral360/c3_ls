@@ -2507,3 +2507,119 @@ fn void resolve_answers_a_contract_with_the_directives_alone() => @pool() {
 	)!!;
 	test::eq(prose.len, 0);
 }
+
+const String SWITCH_SRC = `module switches;
+
+enum Color : int
+{
+	RED,
+	GREEN,
+	BLUE,
+}
+
+struct Paint
+{
+	Color shade;
+}
+
+fn Color pick()
+{
+	return RED;
+}
+
+fn void go(Color c, Paint p, int n)
+{
+	switch (c)
+	{
+		PLACEHOLDER
+	}
+}
+`;
+
+<*
+ A case label of a switch over an enum takes that enum's values, and they
+ are written bare - the type is already known from the switch.
+*>
+fn void case_labels_offer_the_switched_enum() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String[] labels = test_support::enum_values_for(&session, SWITCH_SRC, "case ");
+
+	test::eq(labels.len, 3);
+	test::@check(test_support::has(labels, "RED"), "the first value was not offered");
+	test::@check(test_support::has(labels, "GREEN"), "a value was not offered");
+	test::@check(test_support::has(labels, "BLUE"), "the last value was not offered");
+
+	// Bare, with no `Color.` in front of them.
+	test::@check(!test_support::has(labels, "Color.RED"), "a value was offered qualified");
+
+	// And filtered by what has been typed, like every other completion.
+	String[] typed = test_support::enum_values_for(&session, SWITCH_SRC, "case B");
+	test::eq(typed.len, 1);
+	test::eq(typed[0], "BLUE");
+}
+
+<*
+ The type comes from the switched expression, whatever shape it has.
+*>
+fn void case_labels_follow_the_switched_expression() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	// A field of a struct, and the result of a call.
+	String field_src = SWITCH_SRC.treplace("switch (c)", "switch (p.shade)");
+	test::eq(test_support::enum_values_for(&session, field_src, "case ").len, 3);
+
+	String call_src = SWITCH_SRC.treplace("switch (c)", "switch (pick())");
+	test::eq(test_support::enum_values_for(&session, call_src, "case ").len, 3);
+
+	// A switch over something that is not an enum has no values to offer.
+	String int_src = SWITCH_SRC.treplace("switch (c)", "switch (n)");
+	test::eq(test_support::enum_values_for(&session, int_src, "case ").len, 0);
+}
+
+<*
+ Only the label takes a value: past the ':' the cursor is in a body, and
+ a body takes statements.
+*>
+fn void enum_values_stop_at_the_end_of_the_label() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::enum_values_for(&session, SWITCH_SRC, "case RED:\n\t\t\tint x = ").len, 0);
+	test::eq(test_support::enum_values_for(&session, SWITCH_SRC, "default:\n\t\t\t").len, 0);
+
+	// Nor does the switched expression itself take one.
+	test::eq(test_support::enum_values_for(&session, SWITCH_SRC, "").len, 0);
+}
+
+<*
+ A switch being typed into has no closing brace yet, which costs it its
+ node - the case label is exactly the moment the statement is unfinished.
+*>
+fn void case_labels_survive_an_unfinished_switch() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	String open_src = `module switches;
+
+enum Color : int
+{
+	RED,
+	GREEN,
+	BLUE,
+}
+
+fn void go(Color c)
+{
+	switch (c)
+	{
+		PLACEHOLDER`;
+
+	test::eq(test_support::enum_values_for(&session, open_src, "case ").len, 3);
+}

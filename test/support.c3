@@ -255,8 +255,9 @@ fn Context make_completion_context(LspSession* session, String path, Location lo
 	ctx.offset = ctx.file.lines.offset_of(loc);
 	ctx.prefix = analysis::extract_prefix(ctx.sf.content, ctx.offset).trim();
 
-	ctx.top_level_node = core::top_level_at(ctx.sf, loc);
-	ctx.leaf_node = cursor::find_at(ctx.sf.ast.statements.array_view(), { loc, loc });
+	ctx.node_lineage = cursor::lineage(&ctx.sf.ast, loc);
+	ctx.top_level_node = ctx.node_lineage.len > 0 ? ctx.node_lineage[0] : null;
+	ctx.leaf_node = ctx.node_lineage.len > 0 ? ctx.node_lineage[^1] : null;
 
 	completion::context_populate_tokens(&ctx);
 	completion::detect_access_context(&ctx);
@@ -817,6 +818,27 @@ fn String[] import_labels(Context* ctx) {
 	List{CompletionItem} items;
 	items.tinit();
 	completion::provide_imports(ctx, &items);
+
+	List{String} labels;
+	labels.tinit();
+	foreach (CompletionItem item : items) labels.push(item.label);
+
+	return labels.to_tarray();
+}
+
+<*
+ Labels of the enum value completions offered with `typed` written on the
+ PLACEHOLDER line of `src`, with the cursor at the end of it.
+*>
+fn String[] enum_values_for(LspSession* session, String src, String typed) {
+	String text = src.treplace("PLACEHOLDER", typed);
+	load(session, "/virtual/typed.c3", text);
+
+	Context ctx = make_completion_context(session, "/virtual/typed.c3", placeholder_cursor(src, text, typed));
+
+	List{CompletionItem} items;
+	items.tinit();
+	completion::provide_enum_values(&ctx, &items, completion::inferred_enum(&ctx));
 
 	List{String} labels;
 	labels.tinit();

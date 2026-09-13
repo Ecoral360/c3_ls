@@ -182,6 +182,8 @@ fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {
 		return finish(&items);
 	}
 
+	provide_enum_values(&ctx, &items, inferred_enum(&ctx));
+
 	provide_named_args(&ctx, &items);
 
 	provide_locals(&ctx, &items);

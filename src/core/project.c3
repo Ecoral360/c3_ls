@@ -3,6 +3,7 @@ module lsp::core;
 import std::io;
 import std::collections::map;
 import std::collections::list;
+import std::collections::set;
 
 import std::compression::zip;
 
@@ -34,6 +35,7 @@ struct QueuedFile {
 }
 
 struct LspProject {
+	HashSet{String} enabled_features;
 	HashMap{String, LspFile*} files;
 	List{QueuedFile} process_queue;
 	LspSession session;
@@ -49,6 +51,7 @@ fn void LspProject.init(&self, Allocator allocator) {
 	self.process_queue.init(allocator);
 	self.session.init(allocator);
 	self.dstring_pool.init(allocator);
+	self.enabled_features.init(allocator);
 }
 
 fn void LspProject.free(&self) {
@@ -65,6 +68,7 @@ fn void LspProject.free(&self) {
 	};
 	self.manifests.free();
 	self.dstring_pool.free();
+	self.enabled_features.free();
 }
 
 <*
