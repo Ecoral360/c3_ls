@@ -2720,3 +2720,203 @@ fn void call_arguments_skip_the_receiver() => @pool() {
 
 	test::eq(test_support::enum_values_for(&session, CALL_ARG_SRC, "b.dip(").len, 3);
 }
+
+const String COMPARISON_SRC = `module comparisons;
+
+enum Color : int
+{
+	RED,
+	GREEN,
+	BLUE,
+}
+
+struct Brush
+{
+	Color shade;
+	int size;
+}
+
+fn Color pick()
+{
+	return RED;
+}
+
+fn void go(Color c, Brush b, int n)
+{
+	PLACEHOLDER
+}
+`;
+
+<*
+ The right side of a comparison is a value of whatever the left side is,
+ so an enum on the left says which values can be written.
+*>
+fn void comparisons_offer_the_enum_on_the_left() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "if (c == ").len, 3);
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "bool same = c != ").len, 3);
+
+	// Order compares too: an enum has an ordinal.
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "if (c > ").len, 3);
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "if (c <= ").len, 3);
+
+	// The left side is resolved, not just read: a field and a call answer
+	// the same way a local does.
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "if (b.shade == ").len, 3);
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "if (pick() == ").len, 3);
+
+	// And what has been typed narrows them.
+	String[] typed = test_support::enum_values_for(&session, COMPARISON_SRC, "if (c == BL");
+	test::eq(typed.len, 1);
+	test::eq(typed[0], "BLUE");
+}
+
+<*
+ Only where a value of that enum goes: not on the left of the operator,
+ and not where the left side is something else entirely.
+*>
+fn void comparisons_stay_out_of_everything_else() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	// The left side is where the enum comes from; there is nothing to read
+	// it off of yet.
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "if (").len, 0);
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "if (c").len, 0);
+
+	// Comparing something that is not an enum offers nothing.
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "if (n == ").len, 0);
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "if (b.size == ").len, 0);
+
+	// Nor is the left of an assignment.
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "c").len, 0);
+}
+
+<*
+ Assigning to something of an enum type takes the same values.
+*>
+fn void assignments_offer_the_enum_on_the_left() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "c = ").len, 3);
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "b.shade = ").len, 3);
+
+	// A declaration writes its own name on the left, and it resolves the
+	// same way.
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "Color picked = ").len, 3);
+
+	String[] typed = test_support::enum_values_for(&session, COMPARISON_SRC, "c = BL");
+	test::eq(typed.len, 1);
+	test::eq(typed[0], "BLUE");
+
+	// Assigning to anything else offers nothing.
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "n = ").len, 0);
+	test::eq(test_support::enum_values_for(&session, COMPARISON_SRC, "b.size = ").len, 0);
+}
+
+const String RETURN_SRC = `module returns;
+
+enum Color : int
+{
+	RED,
+	GREEN,
+	BLUE,
+}
+
+fn Color pick()
+{
+	PLACEHOLDER
+}
+`;
+
+const String RETURN_INT_SRC = `module returns;
+
+enum Color : int
+{
+	RED,
+	GREEN,
+	BLUE,
+}
+
+fn int count()
+{
+	PLACEHOLDER
+}
+`;
+
+<*
+ A return value is of whatever the signature returns.
+*>
+fn void returns_offer_the_declared_enum() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::enum_values_for(&session, RETURN_SRC, "return ").len, 3);
+
+	String[] typed = test_support::enum_values_for(&session, RETURN_SRC, "return BL");
+	test::eq(typed.len, 1);
+	test::eq(typed[0], "BLUE");
+
+	// A signature that returns something else offers nothing.
+	test::eq(test_support::enum_values_for(&session, RETURN_INT_SRC, "return ").len, 0);
+}
+
+const String INIT_SRC = `module inits;
+
+enum Color : int
+{
+	RED,
+	GREEN,
+	BLUE,
+}
+
+struct Brush
+{
+	Color shade;
+	int size;
+	Color border;
+}
+
+struct Kit
+{
+	Brush brush;
+	int count;
+}
+
+fn void go()
+{
+	PLACEHOLDER
+}
+`;
+
+<*
+ A field of an enum type takes that enum's values, designated or not.
+*>
+fn void initializers_offer_the_field_enum() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::enum_values_for(&session, INIT_SRC, "Brush b = { .shade = ").len, 3);
+	test::eq(test_support::enum_values_for(&session, INIT_SRC, "Brush b = { .border = ").len, 3);
+	test::eq(test_support::enum_values_for(&session, INIT_SRC, "Brush b = { .size = ").len, 0);
+
+	// Written in order, the value fills the next field.
+	test::eq(test_support::enum_values_for(&session, INIT_SRC, "Brush b = { ").len, 3);
+	test::eq(test_support::enum_values_for(&session, INIT_SRC, "Brush b = { RED, ").len, 0);
+	test::eq(test_support::enum_values_for(&session, INIT_SRC, "Brush b = { RED, 2, ").len, 3);
+
+	// A nested initializer is the field's own struct.
+	test::eq(test_support::enum_values_for(&session, INIT_SRC, "Kit k = { .brush = { .shade = ").len, 3);
+
+	String[] typed = test_support::enum_values_for(&session, INIT_SRC, "Brush b = { .shade = BL");
+	test::eq(typed.len, 1);
+	test::eq(typed[0], "BLUE");
+}

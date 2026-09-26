@@ -118,7 +118,7 @@ constdef CompletionItemKind : int {
 	FILE = 17,
 	REFERENCE = 18,
 	FOLDER = 19,
-	ENUMMEMBER = 20,
+	ENUM_MEMBER = 20,
 	CONSTANT = 21,
 	STRUCT = 22,
 	EVENT = 23,

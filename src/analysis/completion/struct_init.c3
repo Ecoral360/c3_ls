@@ -16,7 +16,7 @@ import std::collections::list;
  `designated` says a '.' has already been written, so the field name goes
  in bare rather than with its own dot.
 *>
-struct InitSite @local {
+struct InitSite @private {
 	bool found;
 	sz brace;
 	bool designated;
@@ -29,7 +29,7 @@ struct InitSite @local {
  parse, and the AST answers a half written initializer with the
  enclosing declaration.
 *>
-fn InitSite init_site_at(Context* ctx) @local {
+fn InitSite init_site_at(Context* ctx) @private {
 	sz cursor_idx = ctx.tokens.len();
 	for (sz i = 0; i < ctx.tokens.len(); i++) {
 		if (!analysis::is_before(ctx.tokens[i].range.start, ctx.location)) {
@@ -73,7 +73,7 @@ fn InitSite init_site_at(Context* ctx) @local {
  more often than it is an initializer: `Type name = {`, a `(Type){`
  compound literal, and a `.field = {` nested in one of those.
 *>
-fn Node* initializer_type(Context* ctx, sz brace) @local {
+fn Node* initializer_type(Context* ctx, sz brace) @private {
 	sz i = brace - 1;
 	if (i < 0) return null;
 

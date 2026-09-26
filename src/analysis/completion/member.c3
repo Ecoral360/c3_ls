@@ -79,7 +79,7 @@ fn void detect_access_context(Context* ctx) {
 	ctx.base_node = resolve_chain(ctx, chain);
 }
 
-fn bool is_name_token(TokenKind kind) @local {
+fn bool is_name_token(TokenKind kind) @private {
 	switch (kind) {
 		case IDENT:
 		case TYPE_IDENT:
