@@ -729,10 +729,11 @@ fn List{SymbolRef} lookup_reference(LspSession* session, String path, Location l
 		// Only for a name nothing qualifies: `mod::name` is never a local,
 		// and a local shadows anything the index holds under that name.
 		if (symbol.path.len == 0) {
-			// A case label of a switch over an enum is one of that enum's
-			// values, written bare. Ahead of the scope chain because a
-			// label takes a constant, which a local never is.
-			MemberResolution value = completion::case_label_value(session, entry, current, loc, symbol.name);
+			// A case label of a switch over an enum, or an argument for a
+			// parameter declared as one, is one of that enum's values
+			// written bare. Ahead of the scope chain: what the surroundings
+			// ask for is the value.
+			MemberResolution value = completion::inferred_enum_value(session, entry, current, loc, symbol.name);
 			if (value.decl) return member_refs(session, value);
 
 			Node* local = variable_decl(types, symbol.name);

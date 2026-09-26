@@ -15,16 +15,17 @@ import uri;
 
 fn Node* inferred_enum(Context* ctx) {
 	Node* enum_decl = switch_case_enum(ctx);
+	if (!enum_decl) enum_decl = argument_enum(ctx);
+
 	if (enum_decl && enum_decl.kind == ENUM_DECL) return enum_decl;
 
 	return null;
 }
 
 <*
- The enum value a bare name in a case label stands for, with the enum it
- belongs to.
+ The enum value a bare name stands for, with the enum it belongs to.
 *>
-fn MemberResolution case_label_value(
+fn MemberResolution inferred_enum_value(
 	LspSession* session,
 	FileEntry* file,
 	Module* mod,
@@ -102,6 +103,25 @@ fn Node* switch_case_enum(Context* ctx) @local {
 	if (close < 0) return null;
 
 	return resolve_chain(ctx, extract_access_chain(ctx, close));
+}
+
+<*
+ The enum the argument being typed has to be, when the parameter it fills
+ was declared as one.
+*>
+fn Node* argument_enum(Context* ctx) @local {
+	CallSite site = call_site_at(ctx);
+	if (!site.found) return null;
+
+	Node* callee = resolve_callee(ctx, site.open);
+	if (!callee) return null;
+
+	VarDecl* param = parameter_for(callee, arguments_so_far(ctx, site.open));
+	if (!param || !param.type) return null;
+
+	// The parameter's type is written where the callable is declared,
+	// which is rarely the file the call is in.
+	return analysis::type_decl_of(type_context(ctx), param.type, ctx.session.entry_for_node(callee));
 }
 
 <*

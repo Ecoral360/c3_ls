@@ -2643,3 +2643,80 @@ fn void go(Color c)
 
 	test::eq(test_support::enum_values_for(&session, open_src, "case ").len, 3);
 }
+
+const String CALL_ARG_SRC = `module calls;
+
+enum Color : int
+{
+	RED,
+	GREEN,
+	BLUE,
+}
+
+struct Brush
+{
+	int size;
+}
+
+fn void paint(int size, Color color, Color border = RED)
+{
+}
+
+fn void Brush.dip(&self, Color color)
+{
+}
+
+fn void go(Brush b)
+{
+	PLACEHOLDER
+}
+`;
+
+<*
+ An argument for a parameter declared as an enum takes that enum's
+ values, written bare - the parameter already says which enum.
+*>
+fn void call_arguments_offer_the_parameter_enum() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	// The second argument is the first enum parameter; the first is not.
+	test::eq(test_support::enum_values_for(&session, CALL_ARG_SRC, "paint(1, ").len, 3);
+	test::eq(test_support::enum_values_for(&session, CALL_ARG_SRC, "paint(").len, 0);
+
+	// Position keeps counting past a value already written.
+	test::eq(test_support::enum_values_for(&session, CALL_ARG_SRC, "paint(1, RED, ").len, 3);
+
+	// And narrows with what has been typed, like every other completion.
+	String[] typed = test_support::enum_values_for(&session, CALL_ARG_SRC, "paint(1, GR");
+	test::eq(typed.len, 1);
+	test::eq(typed[0], "GREEN");
+}
+
+<*
+ A named argument says for itself which parameter it fills, and once one
+ has been written, position no longer says anything.
+*>
+fn void call_arguments_follow_the_parameter_name() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::enum_values_for(&session, CALL_ARG_SRC, "paint(border: ").len, 3);
+	test::eq(test_support::enum_values_for(&session, CALL_ARG_SRC, "paint(size: ").len, 0);
+
+	// An unnamed argument after a named one has no parameter to fill.
+	test::eq(test_support::enum_values_for(&session, CALL_ARG_SRC, "paint(border: RED, ").len, 0);
+}
+
+<*
+ The receiver is not written at a method call, so it fills no position.
+*>
+fn void call_arguments_skip_the_receiver() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test::eq(test_support::enum_values_for(&session, CALL_ARG_SRC, "b.dip(").len, 3);
+}

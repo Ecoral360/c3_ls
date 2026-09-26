@@ -15,7 +15,7 @@ import std::collections::list;
  everything from there to the cursor is what has been written of the
  arguments so far.
 *>
-struct CallSite @local {
+struct CallSite @private {
 	bool found;
 	sz open;
 }
@@ -27,7 +27,7 @@ struct CallSite @local {
  parenthesis, and the parser answers a half written call with the
  enclosing declaration rather than a CallExpr.
 *>
-fn CallSite call_site_at(Context* ctx) @local {
+fn CallSite call_site_at(Context* ctx) @private {
 	sz cursor_idx = ctx.tokens.len();
 	for (sz i = 0; i < ctx.tokens.len(); i++) {
 		if (!analysis::is_before(ctx.tokens[i].range.start, ctx.location)) {
@@ -68,7 +68,7 @@ fn CallSite call_site_at(Context* ctx) @local {
 <*
  The function or macro the callee in front of `open` names, or null.
 *>
-fn Node* resolve_callee(Context* ctx, sz open) @local {
+fn Node* resolve_callee(Context* ctx, sz open) @private {
 	ChainSegment[] chain = extract_access_chain(ctx, open);
 	if (chain.len == 0) return null;
 
@@ -95,7 +95,7 @@ fn Node* callable_or_null(Node* node) @local {
 	return node && analysis::is_callable_decl(node) ? node : null;
 }
 
-fn NodeArray callee_params(Node* callee) @local {
+fn NodeArray callee_params(Node* callee) @private {
 	switch (callee.kind) {
 		case FN_DECL:
 			return callee.as(FnDecl).params;
@@ -109,7 +109,7 @@ fn NodeArray callee_params(Node* callee) @local {
 <*
  What the argument list already holds between the '(' and the cursor.
 *>
-struct ArgumentsSoFar @local {
+struct ArgumentsSoFar @private {
 	<*
 	 Counts the finished arguments written without a name.
 	 They fill the parameters in order, so that many can be matched off the front
@@ -123,6 +123,16 @@ struct ArgumentsSoFar @local {
 	 parameter name is not what goes next.
 	*>
 	bool in_value;
+	<*
+	 The name the argument being typed was given, when `in_value` says it
+	 was given one.
+	*>
+	String name;
+	<*
+	 A named argument came before the one being typed, so its position no
+	 longer says which parameter it fills.
+	*>
+	bool after_named;
 }
 
 <*
@@ -138,7 +148,7 @@ fn bool is_named_argument(Context* ctx, sz start) @local {
 	return ctx.tokens[start].kind == IDENT && ctx.tokens[start + 1].kind == COLON;
 }
 
-fn ArgumentsSoFar arguments_so_far(Context* ctx, sz open) @local {
+fn ArgumentsSoFar arguments_so_far(Context* ctx, sz open) @private {
 	ArgumentsSoFar written;
 
 	int depth;
@@ -173,8 +183,40 @@ fn ArgumentsSoFar arguments_so_far(Context* ctx, sz open) @local {
 	}
 
 	written.in_value = is_named_argument(ctx, arg_start);
+	if (written.in_value) written.name = ctx.tokens[arg_start].value;
+	written.after_named = !positional;
 
 	return written;
+}
+
+<*
+ The parameter the argument being typed fills, or null.
+
+ A named argument says which one itself. Otherwise it is the next one in
+ order, which only holds while every argument ahead of it was positional.
+ The receiver is not written at the call site, so it fills no position.
+*>
+fn VarDecl* parameter_for(Node* callee, ArgumentsSoFar written) @private {
+	usz position;
+
+	foreach (Node* param_node : callee_params(callee)) {
+		if (!param_node || param_node.kind != VAR_DECL) continue;
+
+		VarDecl* param = param_node.as(VarDecl);
+		if (param.var_flags.is_self) continue;
+
+		if (written.in_value) {
+			if (param.name && param.name.text == written.name) return param;
+			continue;
+		}
+
+		if (written.after_named) return null;
+		if (position == written.positional) return param;
+
+		position++;
+	}
+
+	return null;
 }
 
 <*

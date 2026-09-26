@@ -151,14 +151,17 @@ fn bool node_needs_prefix(Node* node) {
 		case ENUM_DECL:
 		case INTERFACE_DECL:
 			return false;
+
 		default:
-			return true;
+			return !@ok(cursor::get_attribute(node, BUILTIN));
 	}
 }
 
 fn bool type_is_void(
 	TypeExpr* type_expr
 ) => type_expr.type_kind == TYPE_IDENTIFIER && type_expr.unresolved.name.text == "void";
+
+fn bool fn_is_print(String insert_text) => insert_text.starts_with("io::print");
 
 fn String call_cursor(NodeArray params, bool is_method) {
 	if (params.len == 0) return "";
@@ -207,8 +210,8 @@ fn void add_symbol_completion(
 
 			String cursor = call_cursor(decl.params, decl.associated_type != null);
 
-			bool is_void = type_is_void(decl.ret_type.as(TypeExpr));
-			insert_text = ctx.dstring_pool.cat(insert_text, "(", cursor, ")", is_void ? ";" : "");
+			bool with_semi = type_is_void(decl.ret_type.as(TypeExpr)) || fn_is_print(insert_text);
+			insert_text = ctx.dstring_pool.cat(insert_text, "(", cursor, ")", with_semi ? ";" : "");
 			format = SNIPPET;
 
 		case MACRO_DECL:

@@ -13,6 +13,8 @@ import std::collections::set;
 import lsp::core;
 import uri;
 
+const MAX_COMP_ITEM = 500;
+
 <*
  The session keeps every file's lexer alive, so the token list is already
  built; nothing needs re-lexing here.
@@ -95,7 +97,7 @@ fn CompletionItem[] finish(List{CompletionItem}* items) {
 		if (item.insert_text_format == (InsertTextFormat)0) item.insert_text_format = PLAIN_TEXT;
 	}
 
-	return items.size > 200 ? items.array_view()[:200] : items.array_view();
+	return items.size > MAX_COMP_ITEM ? items.array_view()[:MAX_COMP_ITEM] : items.array_view();
 }
 
 fn CompletionItem[]? resolve(LspProject* project, Uri uri, LspPosition pos) {

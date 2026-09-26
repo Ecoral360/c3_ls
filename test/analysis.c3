@@ -887,3 +887,55 @@ fn void lookup_reference_leaves_other_case_labels_alone() => @pool() {
 	test::eq(refs.len(), 1);
 	test::eq(refs[0].node, test_support::find_top_level(&session, CASE_REF_PATH, "LIMIT"));
 }
+
+const String ARG_REF_PATH = "/virtual/arguments.c3";
+
+const String ARG_REF_SRC = `module arguments;
+
+enum Color : int
+{
+	RED,
+	GREEN,
+}
+
+fn void paint(int size, Color color)
+{
+}
+
+fn void go()
+{
+	paint(1, GREEN);
+	paint(size: 2, color: RED);
+}
+`;
+
+<*
+ An argument for a parameter declared as an enum names one of its values,
+ bare, and resolves to it the way a case label does.
+*>
+fn void lookup_reference_resolves_an_argument_value() => @pool() {
+	LspSession session;
+	session.init(mem);
+	defer session.free();
+
+	test_support::load(&session, ARG_REF_PATH, ARG_REF_SRC);
+
+	FileEntry* entry = session.entry(ARG_REF_PATH);
+	Node* color      = test_support::find_top_level(&session, ARG_REF_PATH, "Color");
+
+	Location positional = test_support::loc_of(ARG_REF_SRC, "GREEN);");
+	List{SymbolRef} refs = lookup_reference(
+		&session,
+		ARG_REF_PATH,
+		positional,
+		cursor::node_entry(&entry.sf.ast, positional).node
+	);
+	test::eq(refs.len(), 1);
+	test::eq(refs[0].node, color.as(EnumDecl).variants[1]);
+	test::eq(refs[0].owner, entry);
+
+	Location named = test_support::loc_of(ARG_REF_SRC, "RED);");
+	refs = lookup_reference(&session, ARG_REF_PATH, named, cursor::node_entry(&entry.sf.ast, named).node);
+	test::eq(refs.len(), 1);
+	test::eq(refs[0].node, color.as(EnumDecl).variants[0]);
+}
